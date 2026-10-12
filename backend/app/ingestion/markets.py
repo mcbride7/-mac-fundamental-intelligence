@@ -26,20 +26,45 @@ SYMBOLS = {
 def run_prices(db: Session, src: Source) -> int:
     if not settings.twelvedata_api_key:
         raise SourceUnavailable("TWELVEDATA_API_KEY not set")
-    n = 0
-    for sym, (provider_sym, cls) in SYMBOLS.items():
-        r = http_get("https://api.twelvedata.com/time_series",
-                     {"symbol": provider_sym, "interval": "5min", "outputsize": 300,
-                      "apikey": settings.twelvedata_api_key, "timezone": "UTC"})
-        data = r.json()
-        if data.get("status") == "error":
+    import os
+    import time
+
+    import requests
+
+    # Free plan: about 8 requests a minute. Pace the calls (set TWELVEDATA_DELAY=0 on a paid plan).
+    delay = float(os.getenv("TWELVEDATA_DELAY", "8"))
+    n, ok, skipped = 0, 0, []
+    for i, (sym, (provider_sym, cls)) in enumerate(SYMBOLS.items()):
+        if i and delay:
+            time.sleep(delay)
+        # Some symbols (indices, some commodities) need a paid plan and come back as 403.
+        # Skip those one by one instead of failing the whole run.
+        try:
+            r = requests.get("https://api.twelvedata.com/time_series",
+                             params={"symbol": provider_sym, "interval": "5min", "outputsize": 300,
+                                     "apikey": settings.twelvedata_api_key, "timezone": "UTC"},
+                             timeout=30)
+            data = r.json()
+        except (requests.RequestException, ValueError) as exc:
+            skipped.append(f"{sym}: {exc.__class__.__name__}")
             continue
+        if r.status_code >= 400 or data.get("status") == "error":
+            skipped.append(f"{sym}: {data.get('code', r.status_code)} {data.get('message', '')}".strip())
+            continue
+        ok += 1
         for v in data.get("values", []):
             ts = datetime.fromisoformat(v["datetime"]).replace(tzinfo=timezone.utc)
             if db.get(MarketPrice, (sym, ts)) is None:
                 db.add(MarketPrice(symbol=sym, ts=ts, price=float(v["close"]), asset_class=cls, source="twelvedata"))
                 n += 1
         db.commit()
+    if not ok:
+        raise SourceUnavailable("Twelve Data refused every symbol. Check TWELVEDATA_API_KEY on api and worker. "
+                                "First reply: " + (skipped[0] if skipped else "none"))
+    if skipped:
+        import logging
+
+        logging.getLogger(__name__).info("Twelve Data skipped (not on your plan): %s", "; ".join(skipped))
     return n
 
 
@@ -53,9 +78,15 @@ def run_finnhub(db: Session, src: Source) -> int:
     if not settings.finnhub_api_key:
         raise SourceUnavailable("FINNHUB_API_KEY not set")
     today = date.today()
-    r = http_get("https://finnhub.io/api/v1/calendar/economic",
-                 {"from": (today - timedelta(days=7)).isoformat(), "to": (today + timedelta(days=21)).isoformat(),
-                  "token": settings.finnhub_api_key})
+    try:
+        r = http_get("https://finnhub.io/api/v1/calendar/economic",
+                     {"from": (today - timedelta(days=7)).isoformat(), "to": (today + timedelta(days=21)).isoformat(),
+                      "token": settings.finnhub_api_key})
+    except SourceUnavailable as exc:
+        if "403" in str(exc):
+            raise SourceUnavailable("Finnhub's economic calendar needs a paid Finnhub plan (403). Add calendar "
+                                    "data with a screenshot or pasted table in Data input instead.") from exc
+        raise
     refs = da.indicator_refs(db)
     n = 0
     for item in r.json().get("economicCalendar", []):
@@ -112,4 +143,3 @@ def currency_pair_for(ccy: str) -> tuple[str, int] | None:
         if len(sym) == 6 and sym.startswith("USD") and sym.endswith(ccy):
             return sym, -1
     return None
-
