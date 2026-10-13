@@ -27,6 +27,10 @@ PDF_MIMES = {"application/pdf"}
 VISION_PROMPT = (
     "Transcribe the economic data visible in this image. If it is a calendar or table, output one line per row "
     "as CSV with header: Time,Currency,Event,Actual,Forecast,Previous (leave a cell empty if not shown). "
+    "Rules for calendar rows: put the 3-letter currency (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, ZAR, CNY, MXN) "
+    "in Currency even if the image shows a flag or country name; copy the event name in full, including y/y, "
+    "m/m, q/q and the month or quarter if shown (for example 'CPI y/y (Sep)'); keep % signs and K/M/B "
+    "suffixes exactly; never guess a number that is not visible; skip speeches, holidays and auctions. "
     "If it is a central-bank projection table, output the table with a header row of years. If it is prose "
     "(a statement), output the prose verbatim. If it shows rate probabilities, output lines like 'Cut: 20%'. "
     "Output only the transcription — no commentary."
