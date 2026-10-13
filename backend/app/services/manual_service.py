@@ -585,20 +585,57 @@ def commit(db: Session, sub_id: int, user_id: int | None = None, rows: list[dict
             if r.get("fields"):
                 update_point(db, p.id, r["fields"], user_id)
             selected.append((p, r.get("override_reason")))
-    problems = []
+    # Save what can be saved instead of blocking the whole upload:
+    # - rows that are fine (or overridden with a reason) are committed,
+    # - calendar rows with a forecast/previous but no actual yet are filed as upcoming events,
+    # - everything else is skipped and reported back so the user can fix and re-add it.
+    problems, upcoming, ready = [], [], []
     for p, reason in selected:
         errors = [w for w in p.warnings or [] if w.get("severity") == "error"]
+        codes = {w["code"] for w in errors}
+        f = p.fields
+        is_upcoming = (p.kind == "economic_release" and _num(f.get("actual")) is None
+                       and da.indicator_by_code(db, f.get("indicator_code") or "") is not None
+                       and bool(f.get("reference_period"))
+                       and codes <= {"MISSING_ACTUAL", "MISSING_FIELD"}
+                       and (_num(f.get("consensus")) is not None or _num(f.get("previous")) is not None))
+        if is_upcoming:
+            upcoming.append(p)
+            continue
         hard = [w for w in errors if w["code"] in ("MISSING_FIELD", "UNMAPPED_INDICATOR", "MISSING_ACTUAL",
                                                    "MISSING_PERIOD")]
         if hard or (errors and not reason):
             problems.append({"id": p.id, "row_index": p.row_index, "errors": errors,
+                             "label": f.get("indicator_text") or f.get("indicator_code") or p.kind,
                              "needs": "correction" if hard else "override_reason"})
-    if problems:
-        raise CommitBlocked(problems)
-    if not selected:
+            continue
+        ready.append((p, reason))
+    if not ready and not upcoming:
+        if problems:
+            raise CommitBlocked(problems)
         raise ValueError("Nothing to commit")
+    selected = ready
     trust = _trust(db, user_id)
     committed: list[dict] = []
+    for p in upcoming:
+        f = p.fields
+        ind = da.indicator_by_code(db, f["indicator_code"])
+        ev = da.event_for(db, ind.id, f["reference_period"])
+        if ev is None:
+            ev = EconomicEvent(indicator_id=ind.id, reference_period=f["reference_period"],
+                               importance=ind.importance)
+            db.add(ev)
+            db.flush()
+        ev.scheduled_at = _released_at(f) or ev.scheduled_at
+        if _num(f.get("consensus")) is not None:
+            ev.consensus, ev.consensus_source = _num(f.get("consensus")), "manual"
+        if _num(f.get("previous")) is not None:
+            ev.previous = _num(f.get("previous"))
+        p.status, p.committed_entity, p.committed_id = "committed", "economic_event", ev.id
+        db.add(ExtractionReview(data_point_id=p.id, user_id=user_id, action="confirm"))
+        committed.append({"point_id": p.id, "entity": "economic_event", "id": ev.id,
+                          "notes": [f"{ind.name} {f['reference_period']}: saved to the calendar as upcoming "
+                                    "(forecast/previous). Add the actual after the release."]})
     triggers: dict[str, dict] = defaultdict(lambda: defaultdict(set))
     projections_by_vintage: dict[tuple, list[ExtractedDataPoint]] = defaultdict(list)
     for p, reason in selected:
@@ -700,7 +737,7 @@ def commit(db: Session, sub_id: int, user_id: int | None = None, rows: list[dict
                                  or [None]))
             job = recompute.trigger(db, entity, first_id, **ctx)
             jobs.append({"id": job.id, "status": job.status, "summary": job.summary})
-    return {"submission_id": sub.id, "committed": committed, "recompute_jobs": jobs}
+    return {"submission_id": sub.id, "committed": committed, "recompute_jobs": jobs, "skipped": problems}
 
 
 def delete_upload(db: Session, sub_id: int, user_id: int | None = None) -> dict:
