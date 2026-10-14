@@ -1,0 +1,309 @@
+"use client";
+
+import { useParams } from "next/navigation";
+import { useState } from "react";
+
+import StatementDiff from "@/components/StatementDiff";
+import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, PolicyDial, Stat, StatusBadge } from "@/components/ui";
+import { post, useApi } from "@/lib/api";
+import { date, dateTime, num, signed, toneClass } from "@/lib/format";
+
+const TABS = ["Overview", "Policy", "Statement comparison", "Projections", "Forecast accuracy", "Where are we now",
+  "Market expectations", "History"] as const;
+
+export default function Bank() {
+  const { code } = useParams<{ code: string }>();
+  const { data: d, error, loading, reload } = useApi<any>(`/api/central-banks/${code}`);
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
+  if (loading && !d) return <Loading />;
+  if (error) return <ErrorBox error={error} />;
+  if (!d) return null;
+  const p = d.policy;
+  return (
+    <>
+      <PageTitle title={d.name} subtitle={`${d.currency}, inflation target ${num(d.inflation_target, 1, "%")}`}>
+        <div className="w-full max-w-sm"><PolicyDial score={p?.score} previous={p?.previous_score} /></div>
+      </PageTitle>
+      <div role="tablist" className="mb-5 flex flex-wrap gap-1 border-b border-line">
+        {TABS.map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === t ? "border-verify text-text" : "border-transparent text-muted hover:text-text"}`}>
+            {t}
+          </button>
+        ))}
+      </div>
+      {tab === "Overview" && <Overview d={d} />}
+      {tab === "Policy" && <Policy d={d} />}
+      {tab === "Statement comparison" && <Comparison code={code} onAdded={reload} />}
+      {tab === "Projections" && <Projections code={code} />}
+      {tab === "Forecast accuracy" && <Accuracy acc={d.forecast_accuracy} />}
+      {tab === "Where are we now" && <WhereAreWe w={d.where_are_we} />}
+      {tab === "Market expectations" && <Expectations d={d} />}
+      {tab === "History" && <History code={code} />}
+    </>
+  );
+}
+
+function Overview({ d }: { d: any }) {
+  const p = d.policy;
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+      <div className="space-y-6">
+        <Panel>
+          <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
+            <Stat label="Current rate" value={num(d.current_rate, 2, "%")} sub={`Previous ${num(d.previous_rate, 2, "%")}`} />
+            <Stat label="Last decision" value={d.last_decision || "—"} sub={d.last_change_bps ? `${signed(d.last_change_bps, 0)} bp` : undefined} />
+            <Stat label="Next meeting" value={date(d.next_meeting)} sub={d.expected_decision ? `Expected: ${d.expected_decision}` : "No expectation recorded"} />
+            <Stat label="Policy" value={p ? `${num(p.score, 0)}/100` : "—"} tone={toneClass(p?.classification)}
+              sub={p ? `${p.classification}, ${p.direction.toLowerCase()}` : undefined} />
+            <Stat label="Momentum" value={d.momentum || "—"} tone={toneClass(d.momentum)} />
+            <Stat label="Inflation" value={num(d.inflation, 1, "%")} />
+            <Stat label="GDP (latest)" value={num(d.growth, 1, "%")} />
+            <Stat label="Unemployment, 6m change" value={signed(d.unemployment_change_6m, 2, " pp")} />
+          </div>
+        </Panel>
+        <Panel title="Current fundamental implication">
+          {d.where_are_we.table.length ? (
+            <>
+              <p className={`text-lg ${toneClass(d.where_are_we.policy_implication.overall)}`}>{d.where_are_we.policy_implication.overall}</p>
+              {d.where_are_we.policy_implication.explanation.map((e: string, i: number) => <p key={i} className="note mt-2">{e}</p>)}
+            </>
+          ) : <Empty href="/data-input" cta="Add a projection table">No projections stored yet, so actuals cannot be compared with what {d.short_name} expected.</Empty>}
+        </Panel>
+        <Panel title="Latest statement">
+          {d.latest_statement ? (
+            <>
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+                <span>{d.latest_statement.title}</span><span className="text-muted">{date(d.latest_statement.published_at)}</span>
+                <StatusBadge status={d.latest_statement.verification_status} />
+                <span className={toneClass(d.latest_statement.tone_label)}>Tone {signed(d.latest_statement.tone_score, 0)}</span>
+              </div>
+              <p className="note text-sm text-muted">{d.latest_statement.excerpt}…</p>
+              {d.statement_changes && (
+                <p className="mt-3 text-sm">{d.statement_changes.changed} changes vs previous statement:{" "}
+                  <span className={toneClass(d.statement_changes.direction)}>{d.statement_changes.direction}</span></p>
+              )}
+            </>
+          ) : <Empty href="/data-input" cta="Paste or upload a statement">No statement stored yet.</Empty>}
+        </Panel>
+      </div>
+      <Panel title="Data behind this page">
+        <p className="mb-3 text-sm text-muted">Evidence quality {num(d.data_status.evidence_quality, 0)}/100</p>
+        <ul className="space-y-2 text-sm">
+          {d.data_status.sources.map((s: any) => (
+            <li key={`${s.id}-${s.label}`} className="flex items-start justify-between gap-2">
+              <span>{s.label}<span className="block text-xs text-muted">{s.value} ({s.period}), {s.source || s.input_method}</span></span>
+              <StatusBadge status={s.status} />
+            </li>
+          ))}
+          {d.data_status.sources.length === 0 && <li className="text-muted">No data yet.</li>}
+        </ul>
+      </Panel>
+    </div>
+  );
+}
+
+function Policy({ d }: { d: any }) {
+  const p = d.policy;
+  if (!p) return <Empty>No policy score yet. Add data and run a recompute.</Empty>;
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Panel title="Score components">
+        <p className="mb-4 text-sm text-muted">Each component runs from −1 (dovish) to +1 (hawkish). Confidence {num(p.confidence, 0)}%.</p>
+        <ul className="space-y-2">
+          {Object.entries(p.components).map(([k, v]: any) => (
+            <li key={k} className="grid grid-cols-[11rem_1fr_3rem] items-center gap-3 text-sm">
+              <span className="capitalize">{k.replaceAll("_", " ")}</span>
+              <span className="relative h-2 rounded bg-panel-2">
+                <span className={`absolute top-0 h-2 rounded ${v >= 0 ? "bg-hawk" : "bg-dove"}`}
+                  style={{ left: v >= 0 ? "50%" : `${50 + v * 50}%`, width: `${Math.abs(v) * 50}%` }} />
+                <span className="absolute left-1/2 top-[-3px] h-3.5 w-px bg-muted" />
+              </span>
+              <span className={`text-right ${toneClass(v)}`}>{signed(v, 2)}</span>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+      <Panel title="Policy shift">
+        <p className={`text-lg ${toneClass(p.shift_classification)}`}>{p.shift_classification}</p>
+        <p className="text-sm text-muted">{num(p.previous_score, 0)} → {num(p.score, 0)} ({signed(p.shift, 0)})</p>
+        <ul className="note mt-3 list-disc space-y-1 pl-5 text-sm">{p.explanation.map((e: string, i: number) => <li key={i}>{e}</li>)}</ul>
+      </Panel>
+    </div>
+  );
+}
+
+function Comparison({ code, onAdded }: { code: string; onAdded: () => void }) {
+  const { data, error, reload } = useApi<any>(`/api/central-banks/${code}/statement-comparison`);
+  const [text, setText] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const add = async () => {
+    try {
+      const r = await post(`/api/central-banks/${code}/statements`, { text });
+      setMsg(r.recompute?.message || "Saved");
+      setText("");
+      reload();
+      onAdded();
+    } catch (e: any) { setMsg(e.message); }
+  };
+  return (
+    <div className="space-y-6">
+      {data ? (
+        <Panel title={`${data.previous.title} → ${data.latest.title}`}>
+          <div className="mb-4 flex flex-wrap gap-4 text-sm">
+            <span>Direction: <span className={toneClass(data.summary.direction)}>{data.summary.direction}</span></span>
+            <span>Tone {signed(data.summary.tone_previous, 0)} → {signed(data.summary.tone_latest, 0)}</span>
+            <span>{data.summary.changed} changed, {data.summary.unchanged} unchanged sentences</span>
+          </div>
+          {data.summary.ai_interpretation && <p className="note mb-4">{data.summary.ai_interpretation}</p>}
+          <p className="mb-3 text-xs text-muted">Left border: red = hawkish, green = dovish, amber = important neutral or mixed, grey = minor. Inserted words are highlighted, removed words struck through.</p>
+          <StatementDiff changes={data.changes} />
+        </Panel>
+      ) : <Empty>{error?.includes("two") ? "At least two statements are needed for a comparison." : "No comparison yet."}</Empty>}
+      <Panel title="Add a statement by pasting its text">
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6}
+          className="w-full rounded border border-line bg-ink p-3 text-sm" placeholder="Paste the full statement…" />
+        <div className="mt-2 flex items-center gap-3">
+          <Button disabled={text.trim().length < 50} onClick={add}>Save and compare</Button>
+          {msg && <span className="text-sm text-muted">{msg}</span>}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function Projections({ code }: { code: string }) {
+  const { data } = useApi<any>(`/api/central-banks/${code}/projections`);
+  if (!data) return <Loading />;
+  if (!data.vintages.length) return <Empty href="/data-input" cta="Upload a projection table">No projection vintages stored. Every new round is kept as a separate vintage.</Empty>;
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Panel title="Revision paths">
+        <table className="grid-table">
+          <thead><tr><th>Variable</th><th>For</th><th>Path</th><th>Momentum</th></tr></thead>
+          <tbody>
+            {data.revisions.map((r: any) => (
+              <tr key={r.id}><td className="capitalize">{r.variable.replaceAll("_", " ")}</td><td>{r.target_period}</td>
+                <td>{r.path.map((x: any) => x.value.toFixed(1)).join(" → ")}</td>
+                <td title={r.interpretation}>{r.momentum}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+      <Panel title="Vintages">
+        <ul className="space-y-3 text-sm">
+          {data.vintages.map((v: any) => (
+            <li key={v.id}>
+              <div className="flex items-center gap-2"><span className="font-medium">{v.label}</span><StatusBadge status={v.verification_status} /></div>
+              <div className="text-muted">{v.projections.map((p: any) => `${p.variable.replaceAll("_", " ")} ${p.target_period}: ${p.value}`).join("; ")}</div>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+    </div>
+  );
+}
+
+function Accuracy({ acc }: { acc: any }) {
+  const vars = Object.keys(acc.central_bank);
+  if (!vars.length) return <Empty>Not enough stored projections and outcomes yet. Scores are calculated from real forecast errors only.</Empty>;
+  return (
+    <Panel title={`Forecast accuracy (${acc.window}, ${acc.basis.replace("_", "-")})`}>
+      <table className="grid-table">
+        <thead><tr><th>Variable</th><th>Central bank</th><th>Market</th><th>Most accurate</th><th>Bias</th></tr></thead>
+        <tbody>
+          {vars.map((v) => (
+            <tr key={v}>
+              <td className="capitalize">{v.replaceAll("_", " ")}</td>
+              <td>{num(acc.central_bank[v]?.score, 0)}/100 <span className="text-xs text-muted">MAE {num(acc.central_bank[v]?.mae, 2)}, n={acc.central_bank[v]?.n}</span></td>
+              <td>{acc.market[v] ? <>{num(acc.market[v].score, 0)}/100 <span className="text-xs text-muted">MAE {num(acc.market[v].mae, 2)}</span></> : "—"}</td>
+              <td>{acc.most_accurate[v]?.replace("_", " ")}</td>
+              <td title={acc.bias[v]?.explanation}>{acc.bias[v]?.classification || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-3 text-sm">Overall: {num(acc.overall, 0)}/100</p>
+    </Panel>
+  );
+}
+
+function WhereAreWe({ w }: { w: any }) {
+  if (!w.table.length) return <Empty href="/data-input" cta="Add projections">No projection to compare with.</Empty>;
+  return (
+    <Panel title="Where are we now?">
+      <table className="grid-table">
+        <thead><tr><th>Indicator</th><th>Projection</th><th>Current</th><th>Difference</th><th>Reading</th><th>Data</th></tr></thead>
+        <tbody>
+          {w.table.map((r: any) => (
+            <tr key={r.indicator}><td>{r.indicator}<span className="block text-xs text-muted">{r.projection_vintage}</span></td>
+              <td>{num(r.projection, 1, "%")}</td><td>{num(r.current, 1, "%")} <span className="text-xs text-muted">{r.period}</span></td>
+              <td>{signed(r.difference, 2, " pp")}</td><td>{r.interpretation}</td><td><StatusBadge status={r.data_status} /></td></tr>
+          ))}
+        </tbody>
+      </table>
+      <p className={`mt-4 ${toneClass(w.policy_implication.overall)}`}>{w.policy_implication.overall}</p>
+      {w.policy_implication.explanation.map((e: string, i: number) => <p key={i} className="note mt-1 text-sm">{e}</p>)}
+    </Panel>
+  );
+}
+
+function Expectations({ d }: { d: any }) {
+  const m = d.market_rate_expectations;
+  const [f, setF] = useState({ prob_cut: "", prob_hold: "", prob_hike: "" });
+  const [msg, setMsg] = useState<string | null>(null);
+  const save = async () => {
+    try {
+      const r = await post("/api/rates/expectations", { central_bank_code: d.code, prob_cut: +f.prob_cut, prob_hold: +f.prob_hold, prob_hike: +f.prob_hike });
+      setMsg(r.recompute?.message);
+    } catch (e: any) { setMsg(e.message); }
+  };
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Panel title="Market pricing for the next meeting">
+        {m ? (
+          <div className="grid grid-cols-3 gap-4">
+            <Stat label="Cut" value={num(m.prob_cut, 0, "%")} /><Stat label="Hold" value={num(m.prob_hold, 0, "%")} />
+            <Stat label="Hike" value={num(m.prob_hike, 0, "%")} />
+            <Stat label="Implied 12m change" value={signed(m.implied_12m_change_bps, 0, " bp")} sub={m.proxy ? "Proxy: 2Y yield minus policy rate" : m.source} />
+            {m.as_of && <Stat label="As of" value={dateTime(m.as_of)} />}
+          </div>
+        ) : <p className="text-sm text-muted">No pricing stored.</p>}
+      </Panel>
+      <Panel title="Enter today's pricing">
+        <div className="grid grid-cols-3 gap-3">
+          {(["prob_cut", "prob_hold", "prob_hike"] as const).map((k) => (
+            <label key={k} className="text-sm">{k.replace("prob_", "").replace(/^\w/, (c) => c.toUpperCase())} %
+              <input inputMode="decimal" value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })}
+                className="mt-1 w-full rounded border border-line bg-ink px-2 py-1.5" /></label>
+          ))}
+        </div>
+        <div className="mt-3 flex items-center gap-3"><Button onClick={save}>Save and re-analyse</Button>
+          {msg && <span className="text-sm text-muted">{msg}</span>}</div>
+      </Panel>
+    </div>
+  );
+}
+
+function History({ code }: { code: string }) {
+  const { data } = useApi<any[]>(`/api/central-banks/${code}/policy-history?limit=60`);
+  if (!data) return <Loading />;
+  if (!data.length) return <Empty>No history yet.</Empty>;
+  const pts = [...data].reverse();
+  const w = 640, h = 160;
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${(i / Math.max(1, pts.length - 1)) * w},${h - (p.score / 100) * h}`).join(" ");
+  return (
+    <Panel title="Policy score history">
+      <svg viewBox={`0 0 ${w} ${h}`} className="h-44 w-full" role="img" aria-label="Policy score over time">
+        <line x1="0" x2={w} y1={h / 2} y2={h / 2} stroke="var(--color-line)" strokeDasharray="4 4" />
+        <path d={path} fill="none" stroke="var(--color-verify)" strokeWidth="2" />
+      </svg>
+      <table className="grid-table mt-4">
+        <thead><tr><th>When</th><th>Score</th><th>Classification</th><th>Shift</th></tr></thead>
+        <tbody>{data.slice(0, 15).map((p) => (
+          <tr key={p.id}><td>{dateTime(p.as_of)}</td><td>{num(p.score, 0)}</td><td className={toneClass(p.classification)}>{p.classification}</td>
+            <td className={toneClass(p.shift)}>{signed(p.shift, 0)}</td></tr>))}</tbody>
+      </table>
+    </Panel>
+  );
+}

@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* Palette: ink-blue research terminal. Colour carries meaning:
+   crimson = hawkish, teal = dovish, amber = mixed / attention, steel blue = verification. */
+@theme {
+  --color-ink: #0f1c2e;
+  --color-panel: #15263d;
+  --color-panel-2: #1b3049;
+  --color-line: #2a4060;
+  --color-text: #e7ebf0;
+  --color-muted: #93a1b5;
+  --color-hawk: #e0605e;
+  --color-dove: #3db58a;
+  --color-amber: #e2b14a;
+  --color-verify: #6fa8e6;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "IBM Plex Serif", ui-serif, Georgia, serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-verify);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.note {
+  font-family: var(--font-serif);
+  line-height: 1.65;
+  max-width: 72ch;
+}
+
+table.grid-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+table.grid-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--color-muted);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  white-space: nowrap;
+}
+table.grid-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 55%, transparent);
+  vertical-align: top;
+}
+table.grid-table tr:hover td {
+  background: color-mix(in srgb, var(--color-panel-2) 60%, transparent);
+}
+
+.diff-insert {
+  background: color-mix(in srgb, var(--color-amber) 25%, transparent);
+  text-decoration: underline;
+  text-decoration-color: var(--color-amber);
+}
+.diff-delete {
+  text-decoration: line-through;
+  color: var(--color-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
