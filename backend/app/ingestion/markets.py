@@ -143,3 +143,4 @@ def currency_pair_for(ccy: str) -> tuple[str, int] | None:
         if len(sym) == 6 and sym.startswith("USD") and sym.endswith(ccy):
             return sym, -1
     return None
+

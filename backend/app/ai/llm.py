@@ -113,6 +113,12 @@ class OpenAIProvider(LLMProvider):
                           max_tokens)
 
 
+class GeminiProvider(OpenAIProvider):
+    """Google Gemini (free tier, no card) through its OpenAI-compatible endpoint."""
+    name = "gemini"
+    url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+
+
 _provider: LLMProvider | None = None
 
 
@@ -124,6 +130,8 @@ def get_llm() -> LLMProvider:
             _provider = AnthropicProvider(settings.anthropic_api_key, settings.llm_model)
         elif p == "openai" and settings.openai_api_key:
             _provider = OpenAIProvider(settings.openai_api_key, settings.llm_model)
+        elif p == "gemini" and settings.gemini_api_key:
+            _provider = GeminiProvider(settings.gemini_api_key, settings.gemini_model)
         else:
             _provider = LLMProvider()
     return _provider

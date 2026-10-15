@@ -166,4 +166,10 @@ def run_source(key: str, db: Session = Depends(get_db)):
 
     if key not in JOBS:
         raise HTTPException(404, f"No automated job for source '{key}'")
-    return run(db, key)
+    res = run(db, key)
+    if res.get("status") == "OK" and res.get("records"):
+        from app.services import recompute
+
+        job = recompute.trigger(db, "market_data" if key == "twelvedata" else "full", None)
+        res["recompute"] = job.summary
+    return res

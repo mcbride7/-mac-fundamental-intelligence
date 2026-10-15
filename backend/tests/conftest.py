@@ -4,7 +4,9 @@ import tempfile
 import pytest
 
 _tmp = tempfile.mkdtemp(prefix="mfi-test-")
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{_tmp}/test.db")
+# Tests NEVER use the real database: DATABASE_URL is replaced by TEST_DATABASE_URL
+# (set it to test on PostgreSQL) or a throwaway SQLite file.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_tmp}/test.db"
 os.environ["STORAGE_DIR"] = f"{_tmp}/storage"
 os.environ["RECOMPUTE_INLINE"] = "1"
 os.environ["LLM_PROVIDER"] = "none"

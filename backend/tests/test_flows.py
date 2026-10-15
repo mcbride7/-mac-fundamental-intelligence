@@ -326,3 +326,31 @@ def test_watchlist_and_graph(client):
     names = {n["node"] for n in g["nodes"]}
     assert {"surprise", "policy_score", "scenarios", "trade_setups", "market_wrong"} <= names
     assert "surprise" in g["triggers"]["release"]
+
+
+def test_mixed_upload_saves_good_rows_and_skips_bad(client, db):
+    text = ("US CPI August 2026 3.1%, forecast 3.0%, previous 2.9%\n"
+            "something unrelated 4.2\n")
+    sub = client.post("/api/manual/text", json={"text": text}).json()
+    ids = [p["id"] for p in sub["points"]]
+    # the main upload: one good row, one unusable row -> good row saved, other reported
+    r = client.post(f"/api/manual/{sub['id']}/confirm", json={"rows": [{"id": i, "include": True} for i in ids]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert any(c["entity"] == "economic_release" for c in body["committed"])
+    assert body["skipped"] and body["skipped"][0]["needs"] == "correction"
+
+
+def test_upcoming_row_goes_to_calendar(client, db):
+    from app.services import data_access as da
+
+    sub = client.post("/api/manual/text", json={"text": "US CPI September 2026 3.4%"}).json()
+    p = sub["points"][0]
+    client.patch(f"/api/manual/points/{p['id']}", json={"fields": {"actual": None, "consensus": 3.3, "previous": 3.1}})
+    r = client.post(f"/api/manual/{sub['id']}/confirm", json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["committed"][0]["entity"] == "economic_event"
+    ind = da.indicator_by_code(db, "US_CPI_YOY")
+    ev = da.event_for(db, ind.id, "2026-09")
+    assert ev.consensus == 3.3 and ev.previous == 3.1
+    assert da.current_release(db, ind.id, "2026-09") is None
