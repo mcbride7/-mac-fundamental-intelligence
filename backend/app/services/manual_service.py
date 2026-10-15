@@ -771,3 +771,64 @@ def delete_upload(db: Session, sub_id: int, user_id: int | None = None) -> dict:
     job = recompute.trigger(db, "release", None, **ctx) if affected else None
     return {"submission_id": sub_id, "releases_removed": len(affected),
             "recompute": job.summary if job else None}
+
+
+# ---------------------------------------------------------------------------
+# Quick edits from the economic calendar (click a number, type, Enter)
+
+QUICK_FIELDS = ("actual", "consensus", "previous")
+
+
+def quick_edit_event(db: Session, event_id: int, field: str, value: float | None, user_id: int | None = None,
+                     reason: str | None = None) -> dict:
+    """Edit one number on a calendar row.
+
+    Forecast (consensus) and previous are stored on the event directly. An actual goes through the
+    normal manual-data path (validation, revisions, verification, audit, re-analysis), exactly as if
+    it had been typed into Data input, so a quick edit is never a shortcut around the checks."""
+    from app.services import recompute
+
+    if field not in QUICK_FIELDS:
+        raise ValueError(f"Field must be one of {', '.join(QUICK_FIELDS)}")
+    ev = db.get(EconomicEvent, event_id)
+    if ev is None:
+        raise LookupError("Event not found")
+    ind = db.get(Indicator, ev.indicator_id)
+
+    if field in ("consensus", "previous"):
+        before = getattr(ev, field)
+        setattr(ev, field, value)
+        if field == "consensus":
+            ev.consensus_source = "manual" if value is not None else None
+        audit(db, "economic_event", ev.id, f"edited {field}", user_id, before=before, after=value)
+        db.commit()
+        rel = da.current_release(db, ind.id, ev.reference_period)
+        jobs = []
+        if rel is not None:  # the surprise depends on the forecast, so re-analyse
+            job = recompute.trigger(db, "release", rel.id, release_ids={rel.id}, indicator_ids={ind.id},
+                                    currencies={ind.currency},
+                                    central_banks={ind.central_bank_code} if ind.central_bank_code else set())
+            jobs.append({"id": job.id, "status": job.status, "summary": job.summary})
+        return {"event_id": ev.id, "field": field, "value": value, "recompute_jobs": jobs}
+
+    if value is None:
+        raise ValueError("To remove an actual, delete the upload it came from on Data health")
+    sub = _new_submission(db, InputMethod.TYPED.value, user_id,
+                          {"indicator_code": ind.code, "reference_period": ev.reference_period})
+    sub.content_type, sub.content_type_confidence = "economic_release", 100.0
+    sub.raw_text = f"{ind.name} {ev.reference_period}: {value} (edited on the calendar)"
+    fields = {"indicator_code": ind.code, "indicator_text": ind.name, "reference_period": ev.reference_period,
+              "actual": value, "consensus": ev.consensus, "previous": ev.previous, "unit": ind.unit,
+              "country": ind.country, "currency": ind.currency, "source_name": "Calendar edit"}
+    if ev.scheduled_at:
+        fields["release_date"] = ev.scheduled_at.date().isoformat()
+    p = ExtractedDataPoint(submission_id=sub.id, row_index=0, kind="economic_release", fields=fields,
+                           field_confidence={k: 100.0 for k in fields})
+    _validate_point(db, p)
+    db.add(p)
+    audit(db, "manual_submission", sub.id, "submitted", user_id, method="calendar_edit")
+    db.commit()
+    res = commit(db, sub.id, user_id, rows=[{"id": p.id, "include": True, "override_reason": reason}])
+    if res.get("skipped"):
+        raise CommitBlocked(res["skipped"])
+    return {"event_id": ev.id, "field": field, "value": value, **res}

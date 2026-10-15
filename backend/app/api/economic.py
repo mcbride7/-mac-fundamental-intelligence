@@ -8,12 +8,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import Auth, get_db, row
+from app.api.deps import Auth, current_user_id, get_db, row
 from app.core.verification import badge
 from app.db import utcnow
 from app.engines.release_engine import event_report
 from app.models import EconomicEvent, EconomicSurprise, ForecastError, Indicator
 from app.services import data_access as da
+from app.services import manual_service as ms
 
 router = APIRouter(prefix="/api", tags=["economic data"], dependencies=[Auth])
 
@@ -95,6 +96,25 @@ def add_event(body: EventIn, db: Session = Depends(get_db)):
             setattr(ev, k, v)
     db.commit()
     return row(ev)
+
+
+class QuickEditIn(BaseModel):
+    field: str  # actual | consensus | previous
+    value: float | None = None
+    reason: str | None = None  # needed when the value looks unusual (e.g. a possible decimal slip)
+
+
+@router.patch("/economic-events/{event_id}")
+def quick_edit(event_id: int, body: QuickEditIn, db: Session = Depends(get_db),
+               user_id: int = Depends(current_user_id)):
+    try:
+        return ms.quick_edit_event(db, event_id, body.field, body.value, user_id, body.reason)
+    except ms.CommitBlocked as exc:
+        raise HTTPException(422, {"message": "Check this value", "problems": exc.problems})
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.get("/economic-events/{event_id}")
