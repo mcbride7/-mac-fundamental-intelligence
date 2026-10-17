@@ -155,6 +155,14 @@ function Comparison({ code, onAdded }: { code: string; onAdded: () => void }) {
             <span>Tone {signed(data.summary.tone_previous, 0)} → {signed(data.summary.tone_latest, 0)}</span>
             <span>{data.summary.changed} changed, {data.summary.unchanged} unchanged sentences</span>
           </div>
+          {data.summary.tone_method && (
+            <p className="mb-3 text-xs text-muted">
+              Tone scored by {data.summary.tone_method}
+              {data.summary.tone_ai_latest !== null && data.summary.tone_ai_latest !== undefined &&
+                ` (AI ${signed(data.summary.tone_ai_latest, 0)}, word list ${signed(data.summary.tone_lexicon_latest, 0)})`}
+              {data.summary.tone_ai_reasons?.length > 0 && `: ${data.summary.tone_ai_reasons.join("; ")}`}
+            </p>
+          )}
           {data.summary.ai_interpretation && <p className="note mb-4">{data.summary.ai_interpretation}</p>}
           <p className="mb-3 text-xs text-muted">Left border: red = hawkish, green = dovish, amber = important neutral or mixed, grey = minor. Inserted words are highlighted, removed words struck through.</p>
           <StatementDiff changes={data.changes} />

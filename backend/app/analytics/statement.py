@@ -200,6 +200,15 @@ def statement_tone(text: str) -> float:
     return round(100 * math.tanh(total / 12.0), 1)
 
 
+def overall_direction(shift: float, hawk: int, dove: int) -> str:
+    """Direction of a whole statement change from its tone shift and the hawkish/dovish edits."""
+    if abs(shift) >= 5:
+        if hawk and dove and abs(shift) < 15:
+            return "Mixed"
+        return "Hawkish" if shift > 0 else "Dovish"
+    return "Mixed" if hawk and dove else "Neutral"
+
+
 def compare(previous: str, latest: str) -> Comparison:
     a, b = split_sentences(previous), split_sentences(latest)
     sm = difflib.SequenceMatcher(a=[s.lower() for s in a], b=[s.lower() for s in b], autojunk=False)
@@ -255,13 +264,7 @@ def compare(previous: str, latest: str) -> Comparison:
     shift = round(new_t - old_t, 1)
     hawk = sum(1 for c in changes if c["direction"] == "Hawkish")
     dove = sum(1 for c in changes if c["direction"] == "Dovish")
-    direction = "Neutral"
-    if abs(shift) >= 5:
-        direction = "Hawkish" if shift > 0 else "Dovish"
-        if hawk and dove and abs(shift) < 15:
-            direction = "Mixed"
-    elif hawk and dove:
-        direction = "Mixed"
+    direction = overall_direction(shift, hawk, dove)
     summary = {"sentences_previous": len(a), "sentences_latest": len(b), "changed": len(changes),
                "unchanged": len(unchanged), "hawkish_changes": hawk, "dovish_changes": dove,
                "critical": sum(1 for c in changes if c["importance"] == "Critical"),

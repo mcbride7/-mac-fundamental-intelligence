@@ -5,7 +5,9 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.ai.llm import DATA_GUARD, get_llm, wrap_document
+import hashlib
+
+from app.ai.llm import DATA_GUARD, extract_json, get_llm, wrap_document
 from app.analytics import policy as px
 from app.analytics import statement as sx
 from app.core.verification import DataPointStatus, evidence_quality
@@ -37,15 +39,63 @@ def previous_statement(db: Session, st: CentralBankStatement) -> CentralBankStat
     return db.scalar(q.order_by(CentralBankStatement.published_at.desc(), CentralBankStatement.id.desc()))
 
 
+AI_TONE_PROMPT = (
+    "Rate the monetary-policy tone of this central-bank statement on a scale from -100 (very dovish: easing, "
+    "rate cuts, worry about growth or jobs) to +100 (very hawkish: tightening, rate hikes, worry about "
+    "inflation). 0 means balanced. Judge forward guidance and the balance of risks, including softer signals "
+    "such as 'patient', 'data-dependent', 'further adjustment', 'for some time' or 'vigilant'. Reply with JSON "
+    'only: {"tone": <number>, "reasons": ["<short reason>", "<short reason>", "<short reason>"]}\n'
+)
+AI_WEIGHT = 0.6  # the AI reads nuance better; the word list keeps it anchored and explainable
+_ai_tone_cache: dict[str, tuple[float, list[str], str]] = {}
+
+
+def ai_tone(text: str) -> tuple[float, list[str], str] | None:
+    """AI tone score, or None when no AI is set up or it fails (the word list is then used alone)."""
+    llm = get_llm()
+    if not llm.available or not text.strip():
+        return None
+    key = hashlib.sha256(text.encode()).hexdigest()
+    if key in _ai_tone_cache:
+        return _ai_tone_cache[key]
+    try:
+        resp = llm.complete(DATA_GUARD, AI_TONE_PROMPT + wrap_document(text[:12000]), 300)
+        data = extract_json(resp.text)
+        score = max(-100.0, min(100.0, float(data["tone"])))
+        reasons = [str(r)[:200] for r in (data.get("reasons") or [])][:3]
+    except Exception:
+        return None
+    _ai_tone_cache[key] = (round(score, 1), reasons, resp.model)
+    return _ai_tone_cache[key]
+
+
+def blended_tone(text: str) -> dict:
+    lex = sx.statement_tone(text)
+    ai = ai_tone(text)
+    if ai is None:
+        return {"score": lex, "lexicon": lex, "ai": None, "reasons": [], "method": "word list", "model": None}
+    score = round(AI_WEIGHT * ai[0] + (1 - AI_WEIGHT) * lex, 1)
+    return {"score": score, "lexicon": lex, "ai": ai[0], "reasons": ai[1], "method": "AI + word list",
+            "model": ai[2]}
+
+
 def compare_statements(db: Session, st: CentralBankStatement) -> CentralBankStatementVersion | None:
-    st.tone_score = sx.statement_tone(st.text)
+    t_new = blended_tone(st.text)
+    st.tone_score = t_new["score"]
     prev = previous_statement(db, st)
     if prev is None:
         return None
     if prev.tone_score is None:
-        prev.tone_score = sx.statement_tone(prev.text)
+        prev.tone_score = blended_tone(prev.text)["score"]
     cmp = sx.compare(prev.text, st.text)
     summary = dict(cmp.summary)
+    shift = round(st.tone_score - prev.tone_score, 1)
+    summary.update({
+        "tone_previous": prev.tone_score, "tone_latest": st.tone_score, "tone_shift": shift,
+        "direction": sx.overall_direction(shift, summary["hawkish_changes"], summary["dovish_changes"]),
+        "tone_method": t_new["method"], "tone_lexicon_latest": t_new["lexicon"], "tone_ai_latest": t_new["ai"],
+        "tone_ai_reasons": t_new["reasons"], "tone_ai_model": t_new["model"],
+    })
     llm = get_llm()
     if llm.available and cmp.changes:
         try:
