@@ -97,3 +97,38 @@ def test_sources_show_run_now(client):
     for k in ("eurostat", "ons", "statcan", "abs", "fred", "forexfactory"):
         assert srcs[k]["runnable"], k
     assert not srcs["bls"]["runnable"]
+
+
+class _Resp:
+    def __init__(self, status, body="", js=None):
+        self.status_code, self.text, self._js = status, body, js
+
+    def json(self):
+        if self._js is None:
+            raise ValueError("no json")
+        return self._js
+
+
+def test_statcan_falls_back_to_get(monkeypatch):
+    ok = [{"status": "SUCCESS", "object": {"vectorId": 2062815, "vectorDataPoint": [
+        {"refPer": "2026-08-01", "value": 7.1}, {"refPer": "2026-09-01", "value": 7.0}]}}]
+    monkeypatch.setattr(off.requests, "post", lambda *a, **k: _Resp(404, "<html>Not Found</html>"))
+    monkeypatch.setattr(off.requests, "get", lambda *a, **k: _Resp(200, "", ok))
+    assert off._statcan(2062815, 4) == [("2026-08", 7.1), ("2026-09", 7.0)]
+    monkeypatch.setattr(off.requests, "get", lambda *a, **k: _Resp(404, "Not Found"))
+    with pytest.raises(off.SourceUnavailable) as e:
+        off._statcan(2062815, 4)
+    assert "404" in str(e.value)
+
+
+def test_abs_tries_other_query_forms(monkeypatch):
+    calls = []
+    xml = '<m xmlns="x"><Obs TIME_PERIOD="2026-09" OBS_VALUE="4.7"/></m>'
+
+    def fake_get(url, params=None, **k):
+        calls.append(params)
+        return _Resp(404, "NoRecordsFound") if len(calls) == 1 else _Resp(200, xml)
+
+    monkeypatch.setattr(off.requests, "get", fake_get)
+    assert off._abs("LF,1.0.0", "M13.3.1599.20.AUS.M") == [("2026-09", 4.7)]
+    assert len(calls) == 2

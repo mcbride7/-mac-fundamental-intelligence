@@ -167,7 +167,7 @@ function Comparison({ code, onAdded }: { code: string; onAdded: () => void }) {
           <p className="mb-3 text-xs text-muted">Left border: red = hawkish, green = dovish, amber = important neutral or mixed, grey = minor. Inserted words are highlighted, removed words struck through.</p>
           <StatementDiff changes={data.changes} />
         </Panel>
-      ) : <Empty>{error?.includes("two") ? "At least two statements are needed for a comparison." : "No comparison yet."}</Empty>}
+      ) : <Empty>{error ? `Couldn't load the comparison (${error}).` : "A comparison appears once two statements are stored. The feed adds each new statement after a meeting, or paste an earlier statement below."}</Empty>}
       <Panel title="Add a statement by pasting its text">
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6}
           className="w-full rounded border border-line bg-ink p-3 text-sm" placeholder="Paste the full statement…" />

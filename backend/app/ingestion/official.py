@@ -18,6 +18,7 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Callable
 
 import requests
@@ -54,7 +55,7 @@ def _get(url: str, params: dict | None = None) -> requests.Response:
     except requests.RequestException as exc:
         raise SourceUnavailable(f"could not reach {url.split('/')[2]} ({exc.__class__.__name__})") from exc
     if r.status_code != 200:
-        raise SourceUnavailable(f"{url.split('/')[2]} returned {r.status_code}")
+        raise SourceUnavailable(f"{url.split('/')[2]} returned {r.status_code} {_snippet(r)}".strip())
     return r
 
 
@@ -224,17 +225,51 @@ def parse_statcan(data: list) -> dict[int, list[tuple[str, float]]]:
     return out
 
 
+STATCAN_GET_URL = "https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorByReferencePeriodRange"
+HEADERS = {**UA, "Accept": "application/json, application/xml;q=0.9, */*;q=0.8"}
+
+
+def _months_back(n: int) -> str:
+    today = date.today()
+    y, m = today.year, today.month - n
+    while m <= 0:
+        y, m = y - 1, m + 12
+    return f"{y}-{m:02d}"
+
+
+def _snippet(r: requests.Response) -> str:
+    return " ".join((r.text or "").split())[:120]
+
+
 def _statcan(vector: int, n: int) -> list[tuple[str, float]]:
-    try:
-        r = requests.post(STATCAN_URL, json=[{"vectorId": vector, "latestN": n}], headers=UA, timeout=TIMEOUT)
-    except requests.RequestException as exc:
-        raise SourceUnavailable(f"could not reach Statistics Canada ({exc.__class__.__name__})") from exc
-    if r.status_code != 200:
-        raise SourceUnavailable(f"Statistics Canada returned {r.status_code}")
-    pts = parse_statcan(r.json()).get(vector)
-    if not pts:
-        raise SourceUnavailable(f"Statistics Canada vector v{vector}: no values")
-    return pts
+    """Two documented ways in: the POST 'latest N' call, then the GET date-range call."""
+    errors = []
+    attempts = [
+        lambda: requests.post(STATCAN_URL, json=[{"vectorId": vector, "latestN": n}], headers=HEADERS,
+                              timeout=TIMEOUT),
+        lambda: requests.get(STATCAN_GET_URL, params={"vectorIds": f'"{vector}"',
+                                                      "startRefPeriod": _months_back(n + 2) + "-01",
+                                                      "endReferencePeriod": date.today().isoformat()},
+                             headers=HEADERS, timeout=TIMEOUT),
+    ]
+    for attempt in attempts:
+        try:
+            r = attempt()
+        except requests.RequestException as exc:
+            errors.append(exc.__class__.__name__)
+            continue
+        if r.status_code != 200:
+            errors.append(f"{r.status_code} {_snippet(r)}".strip())
+            continue
+        try:
+            pts = parse_statcan(r.json()).get(vector)
+        except ValueError:
+            errors.append(f"not JSON: {_snippet(r)}")
+            continue
+        if pts:
+            return pts[-n:]
+        errors.append("no values")
+    raise SourceUnavailable(f"Statistics Canada v{vector}: " + " | ".join(errors))
 
 
 def yoy(points: list[tuple[str, float]]) -> list[tuple[str, float]]:
@@ -276,13 +311,32 @@ def parse_sdmx_xml(text: str) -> list[tuple[str, float]]:
     return sorted(out)
 
 
+ABS_ACCEPT = {**UA, "Accept": "application/vnd.sdmx.structurespecificdata+xml;version=2.1, application/xml"}
+
+
 def _abs(flow: str, key: str) -> list[tuple[str, float]]:
-    r = _get(f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}",
-             {"lastNObservations": 6, "dimensionAtObservation": "AllDimensions"})
-    pts = parse_sdmx_xml(r.text)
-    if not pts:
-        raise SourceUnavailable(f"ABS {flow} {key}: no values")
-    return pts
+    url = f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}"
+    errors = []
+    for params in ({"startPeriod": _months_back(8), "dimensionAtObservation": "AllDimensions"},
+                   {"startPeriod": _months_back(8)},
+                   {"lastNObservations": 6}):
+        try:
+            r = requests.get(url, params=params, headers=ABS_ACCEPT, timeout=TIMEOUT)
+        except requests.RequestException as exc:
+            errors.append(exc.__class__.__name__)
+            continue
+        if r.status_code != 200:
+            errors.append(f"{r.status_code} {_snippet(r)}".strip())
+            continue
+        try:
+            pts = parse_sdmx_xml(r.text)
+        except ET.ParseError:
+            errors.append(f"not XML: {_snippet(r)}")
+            continue
+        if pts:
+            return pts
+        errors.append("no values")
+    raise SourceUnavailable(f"ABS {flow} {key}: " + " | ".join(errors))
 
 
 ABS = Agency("abs", [

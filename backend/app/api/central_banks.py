@@ -122,10 +122,8 @@ def add_statement(cb_id: str, body: StatementIn, db: Session = Depends(get_db),
 
 @router.get("/{cb_id}/statement-comparison")
 def statement_comparison(cb_id: str, statement_id: int | None = None, db: Session = Depends(get_db)):
-    res = cb_engine.comparison(db, _cb(db, cb_id), statement_id)
-    if res is None:
-        raise HTTPException(404, "Need at least two statements to compare")
-    return res
+    # null (not an error) when fewer than two statements are stored yet
+    return cb_engine.comparison(db, _cb(db, cb_id), statement_id)
 
 
 @router.get("/{cb_id}/speeches")
