@@ -102,6 +102,7 @@ def test_sources_show_run_now(client):
 class _Resp:
     def __init__(self, status, body="", js=None):
         self.status_code, self.text, self._js = status, body, js
+        self.headers = {"content-type": "application/json" if js is not None else "application/xml"}
 
     def json(self):
         if self._js is None:
@@ -132,3 +133,20 @@ def test_abs_tries_other_query_forms(monkeypatch):
     monkeypatch.setattr(off.requests, "get", fake_get)
     assert off._abs("LF,1.0.0", "M13.3.1599.20.AUS.M") == [("2026-09", 4.7)]
     assert len(calls) == 2
+
+
+def test_abs_generic_xml_csv_and_json():
+    generic = """<?xml version="1.0"?><message:GenericData xmlns:message="m" xmlns:generic="g"><message:DataSet>
+      <generic:Series><generic:Obs><generic:ObsDimension value="2026-08"/><generic:ObsValue value="4.65"/></generic:Obs>
+      <generic:Obs><generic:ObsDimension value="2026-09"/><generic:ObsValue value="4.72"/></generic:Obs></generic:Series>
+      </message:DataSet></message:GenericData>"""
+    assert off.parse_sdmx_xml(generic) == [("2026-08", 4.65), ("2026-09", 4.72)]
+    flat = """<m:GenericData xmlns:m="m" xmlns:g="g"><g:Obs><g:ObsKey><g:Value id="MEASURE" value="M13"/>
+      <g:Value id="TIME_PERIOD" value="2026-09"/></g:ObsKey><g:ObsValue value="4.72"/></g:Obs></m:GenericData>"""
+    assert off.parse_sdmx_xml(flat) == [("2026-09", 4.72)]
+    csv_text = "DATAFLOW,MEASURE,TIME_PERIOD,OBS_VALUE\nABS:LF(1.0.0),M13,2026-08,4.65\nABS:LF(1.0.0),M13,2026-09,4.72\n"
+    assert off.parse_sdmx_csv(csv_text) == [("2026-08", 4.65), ("2026-09", 4.72)]
+    js = {"data": {"structure": {"dimensions": {"observation": [{"id": "TIME_PERIOD", "values": [
+        {"id": "2026-08"}, {"id": "2026-09"}]}]}},
+        "dataSets": [{"series": {"0:0:0:0:0": {"observations": {"0": [4.65], "1": [4.72]}}}}]}}
+    assert off.parse_sdmx_json(js) == [("2026-08", 4.65), ("2026-09", 4.72)]

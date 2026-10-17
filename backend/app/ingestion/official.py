@@ -298,7 +298,14 @@ STATCAN = Agency("statcan", [
 
 # --------------------------------------------------------------------------- ABS (Australia, SDMX)
 
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
 def parse_sdmx_xml(text: str) -> list[tuple[str, float]]:
+    """Read observations from any of the SDMX 2.1 XML layouts the ABS can send:
+    structure-specific (<Obs TIME_PERIOD=".." OBS_VALUE=".."/>) and generic
+    (<Obs><ObsDimension value=".."/><ObsValue value=".."/></Obs>, or ObsKey/Value id="TIME_PERIOD")."""
     root = ET.fromstring(text)
     out = []
     for el in root.iter():
@@ -307,8 +314,72 @@ def parse_sdmx_xml(text: str) -> list[tuple[str, float]]:
             try:
                 out.append((_period(a["TIME_PERIOD"]), float(a["OBS_VALUE"])))
             except ValueError:
-                continue
-    return sorted(out)
+                pass
+            continue
+        if _local(el.tag) != "Obs":
+            continue
+        t = v = None
+        for c in el.iter():
+            name = _local(c.tag)
+            if name == "ObsDimension" and c.attrib.get("value"):
+                t = c.attrib["value"]
+            elif name == "Value" and c.attrib.get("id") == "TIME_PERIOD":
+                t = c.attrib.get("value")
+            elif name == "ObsValue" and c.attrib.get("value") is not None:
+                v = c.attrib["value"]
+        if t and v not in (None, "", "NaN"):
+            try:
+                out.append((_period(t), float(v)))
+            except ValueError:
+                pass
+    return sorted(set(out))
+
+
+def parse_sdmx_csv(text: str) -> list[tuple[str, float]]:
+    import csv
+    import io
+
+    rows = list(csv.DictReader(io.StringIO(text)))
+    out = []
+    for r in rows:
+        t = r.get("TIME_PERIOD") or r.get("TIME_PERIOD: Time Period")
+        v = r.get("OBS_VALUE") or r.get("OBS_VALUE: Observation Value")
+        if t and v not in (None, ""):
+            try:
+                out.append((_period(t.split(":")[0].strip()), float(v)))
+            except ValueError:
+                pass
+    return sorted(set(out))
+
+
+def parse_sdmx_json(data: dict) -> list[tuple[str, float]]:
+    """SDMX-JSON 1.0/2.0: observations keyed by index into the TIME_PERIOD dimension values."""
+    struct = data.get("data", data).get("structure") or (data.get("data", {}).get("structures") or [{}])[0]
+    datasets = data.get("data", data).get("dataSets") or []
+    obs_dims = (struct.get("dimensions") or {}).get("observation") or []
+    tdim = next((i for i, d in enumerate(obs_dims) if d.get("id") == "TIME_PERIOD"), None)
+    if tdim is None or not datasets:
+        return []
+    times = [v.get("id") for v in obs_dims[tdim]["values"]]
+    out = []
+    for ds in datasets:
+        series = ds.get("series") or {"": {"observations": ds.get("observations") or {}}}
+        for s in series.values():
+            for k, val in (s.get("observations") or {}).items():
+                idx = int(k.split(":")[tdim if ":" in k and len(obs_dims) > 1 else 0])
+                if val and val[0] is not None:
+                    out.append((_period(times[idx]), float(val[0])))
+    return sorted(set(out))
+
+
+def parse_abs_response(r: requests.Response) -> list[tuple[str, float]]:
+    ctype = (r.headers.get("content-type") or "").lower()
+    body = r.text or ""
+    if "json" in ctype or body.lstrip().startswith("{"):
+        return parse_sdmx_json(r.json())
+    if "csv" in ctype or body.startswith(("DATAFLOW", "STRUCTURE")):
+        return parse_sdmx_csv(body)
+    return parse_sdmx_xml(body)
 
 
 ABS_ACCEPT = {**UA, "Accept": "application/vnd.sdmx.structurespecificdata+xml;version=2.1, application/xml"}
@@ -316,14 +387,13 @@ ABS_ACCEPT = {**UA, "Accept": "application/vnd.sdmx.structurespecificdata+xml;ve
 
 def _abs(flow: str, key: str) -> list[tuple[str, float]]:
     errors = []
+    base = f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}"
+    start = _months_back(8)
     tries = [
-        (f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}",
-         {"startPeriod": _months_back(8), "dimensionAtObservation": "AllDimensions"}, ABS_ACCEPT),
-        (f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}", {"startPeriod": _months_back(8)},
-         {**UA, "Accept": "application/xml"}),
-        # the ABS's older address for the same data
-        (f"https://api.data.abs.gov.au/data/ABS,{flow}/{key}",
-         {"startPeriod": _months_back(8), "dimensionAtObservation": "AllDimensions"}, ABS_ACCEPT),
+        (base, {"startPeriod": start, "dimensionAtObservation": "AllDimensions"}, ABS_ACCEPT),
+        (base, {"startPeriod": start}, {**UA, "Accept": "application/vnd.sdmx.data+csv;version=1.0.0"}),
+        (base, {"startPeriod": start}, {**UA, "Accept": "application/vnd.sdmx.data+json;version=1.0.0"}),
+        (base, {"startPeriod": start}, {**UA, "Accept": "application/xml"}),
     ]
     for url, params, headers in tries:
         try:
@@ -332,16 +402,16 @@ def _abs(flow: str, key: str) -> list[tuple[str, float]]:
             errors.append(exc.__class__.__name__)
             continue
         if r.status_code != 200:
-            errors.append(f"{url.split('/')[2]} {r.status_code} {_snippet(r)}".strip())
+            errors.append(f"{r.status_code} {_snippet(r)}".strip())
             continue
         try:
-            pts = parse_sdmx_xml(r.text)
-        except ET.ParseError:
-            errors.append(f"not XML: {_snippet(r)}")
+            pts = parse_abs_response(r)
+        except (ET.ParseError, ValueError, KeyError, IndexError, TypeError):
+            errors.append(f"unreadable reply: {_snippet(r)}")
             continue
         if pts:
             return pts
-        errors.append("no values")
+        errors.append(f"no values in reply ({(r.headers.get('content-type') or '?').split(';')[0]}: {_snippet(r)[:60]})")
     raise SourceUnavailable(f"ABS {flow} {key}: " + " | ".join(errors))
 
 
