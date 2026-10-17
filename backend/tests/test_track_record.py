@@ -61,3 +61,14 @@ def test_missing_price_is_noted_not_guessed(db):
 def test_endpoint(client):
     r = client.get("/api/track-record")
     assert r.status_code == 200 and {g["grade"] for g in r.json()["by_grade"]} == {"A+", "A", "B", "C"}
+
+
+def test_cross_pairs_priced_from_usd_legs(db):
+    from app.services import track_record as tr
+
+    _price(db, "EURUSD", T0, 1.10)
+    _price(db, "GBPUSD", T0, 1.25)
+    _price(db, "USDJPY", T0, 150.0)
+    db.commit()
+    assert round(tr._price_near(db, "EURGBP", T0).price, 4) == 0.88
+    assert round(tr._price_near(db, "EURJPY", T0).price, 2) == 165.0

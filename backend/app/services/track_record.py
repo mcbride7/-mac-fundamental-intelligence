@@ -7,6 +7,7 @@ call was right and the average move, so the grades can be judged on evidence rat
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,12 +25,38 @@ def _aware(ts: datetime) -> datetime:
     return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
 
 
-def _price_near(db: Session, asset: str, ts: datetime) -> MarketPrice | None:
-    p = db.scalar(select(MarketPrice).where(MarketPrice.symbol == asset, MarketPrice.ts <= ts)
+def _direct(db: Session, symbol: str, ts: datetime) -> MarketPrice | None:
+    p = db.scalar(select(MarketPrice).where(MarketPrice.symbol == symbol, MarketPrice.ts <= ts)
                   .order_by(MarketPrice.ts.desc()))
     if p is not None and ts - _aware(p.ts) <= MAX_PRICE_GAP:
         return p
     return None
+
+
+def _usd_rate(db: Session, ccy: str, ts: datetime) -> tuple[float, datetime] | None:
+    """Value of 1 unit of `ccy` in USD, from EURUSD-style or USDJPY-style quotes."""
+    if ccy == "USD":
+        return 1.0, ts
+    p = _direct(db, f"{ccy}USD", ts)
+    if p is not None:
+        return p.price, p.ts
+    p = _direct(db, f"USD{ccy}", ts)
+    if p is not None and p.price:
+        return 1 / p.price, p.ts
+    return None
+
+
+def _price_near(db: Session, asset: str, ts: datetime) -> SimpleNamespace | None:
+    """Price of `asset` at or just before `ts`; crosses like EURGBP are built from their USD legs."""
+    p = _direct(db, asset, ts)
+    if p is not None:
+        return SimpleNamespace(price=p.price, ts=p.ts)
+    if len(asset) != 6:
+        return None
+    b, q = _usd_rate(db, asset[:3], ts), _usd_rate(db, asset[3:], ts)
+    if b is None or q is None or not q[0]:
+        return None
+    return SimpleNamespace(price=round(b[0] / q[0], 6), ts=min(b[1], q[1], key=_aware))
 
 
 def latest_open(db: Session, asset: str) -> SignalRecord | None:
