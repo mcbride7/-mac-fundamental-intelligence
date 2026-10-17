@@ -315,18 +315,24 @@ ABS_ACCEPT = {**UA, "Accept": "application/vnd.sdmx.structurespecificdata+xml;ve
 
 
 def _abs(flow: str, key: str) -> list[tuple[str, float]]:
-    url = f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}"
     errors = []
-    for params in ({"startPeriod": _months_back(8), "dimensionAtObservation": "AllDimensions"},
-                   {"startPeriod": _months_back(8)},
-                   {"lastNObservations": 6}):
+    tries = [
+        (f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}",
+         {"startPeriod": _months_back(8), "dimensionAtObservation": "AllDimensions"}, ABS_ACCEPT),
+        (f"https://data.api.abs.gov.au/rest/data/ABS,{flow}/{key}", {"startPeriod": _months_back(8)},
+         {**UA, "Accept": "application/xml"}),
+        # the ABS's older address for the same data
+        (f"https://api.data.abs.gov.au/data/ABS,{flow}/{key}",
+         {"startPeriod": _months_back(8), "dimensionAtObservation": "AllDimensions"}, ABS_ACCEPT),
+    ]
+    for url, params, headers in tries:
         try:
-            r = requests.get(url, params=params, headers=ABS_ACCEPT, timeout=TIMEOUT)
+            r = requests.get(url, params=params, headers=headers, timeout=TIMEOUT)
         except requests.RequestException as exc:
             errors.append(exc.__class__.__name__)
             continue
         if r.status_code != 200:
-            errors.append(f"{r.status_code} {_snippet(r)}".strip())
+            errors.append(f"{url.split('/')[2]} {r.status_code} {_snippet(r)}".strip())
             continue
         try:
             pts = parse_sdmx_xml(r.text)
