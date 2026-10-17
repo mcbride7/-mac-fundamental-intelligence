@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, StatusBadge } from "@/components/ui";
-import { post, put, useApi } from "@/lib/api";
+import { download, post, put, useApi } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 
 const SRC_CLS: Record<string, string> = { OK: "text-dove", DELAYED: "text-amber", STALE: "text-amber", FAILED: "text-hawk",
@@ -62,7 +62,12 @@ export default function DataHealth() {
   return (
     <>
       <PageTitle title="Data health" subtitle="Every feed, every missing release, and every value that still needs verification. Data failure never stops the analysis: fill gaps here and the platform re-analyses immediately.">
-        <div className="flex gap-2"><Button kind="ghost" onClick={verify}>Check official sources now</Button>
+        <div className="flex flex-wrap gap-2"><Button kind="ghost" onClick={verify}>Check official sources now</Button>
+          <Button kind="ghost" onClick={async () => {
+            setMsg("Preparing backup…");
+            try { await download("/api/backup/export", "mfi-backup.json.gz"); setMsg("Backup downloaded. Keep it somewhere safe, off Railway."); }
+            catch (e: any) { setMsg(`Backup failed: ${e?.message || e}`); }
+          }}>Download backup</Button>
           <Link href="/data-input" className="rounded bg-verify px-3 py-1.5 text-sm font-medium text-ink">Add data</Link></div>
       </PageTitle>
       <ErrorBox error={error} />

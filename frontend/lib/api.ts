@@ -58,6 +58,21 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
   return data as T;
 }
 
+/** Download a file from the API (with the login session) and save it in the browser. */
+export async function download(path: string, fallbackName: string) {
+  const res = await fetch(`${API_URL}${path}`, { headers: headers() });
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "")?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 export const post = <T = any>(path: string, body?: unknown) =>
   api<T>(path, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) });
 export const put = <T = any>(path: string, body?: unknown) => api<T>(path, { method: "PUT", body: JSON.stringify(body ?? {}) });

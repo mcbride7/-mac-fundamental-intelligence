@@ -44,3 +44,19 @@ for r in (auth, system, manual, data, central_banks, economic, markets, analysis
 @app.get("/health", tags=["system"])
 def health():
     return {"status": "ok", "app": settings.app_name}
+
+
+@app.get("/health/deep", tags=["system"])
+def health_deep():
+    """For uptime monitors: 503 when the database is down or the worker has gone quiet."""
+    from fastapi.responses import JSONResponse
+
+    from app.services.ops import deep_health
+
+    try:
+        with SessionLocal() as db:
+            ok, body = deep_health(db)
+    except Exception as exc:
+        ok, body = False, {"database": f"down ({exc.__class__.__name__})"}
+    body["app"] = settings.app_name
+    return JSONResponse(body, status_code=200 if ok else 503)

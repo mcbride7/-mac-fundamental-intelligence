@@ -1,6 +1,8 @@
 """Home dashboard, alerts, watchlists, recompute and AI endpoints."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -114,6 +116,17 @@ def alerts(unread: bool = False, kind: str | None = None, limit: int = 100, db: 
         q = q.where(Alert.kind == kind)
     return {"alerts": rows(db.scalars(q)),
             "unread": db.scalar(select(func.count(Alert.id)).where(Alert.is_read.is_(False)))}
+
+
+@router.get("/backup/export")
+def backup_export(db: Session = Depends(get_db)):
+    from fastapi import Response
+
+    from app.services.ops import export_all
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return Response(export_all(db), media_type="application/gzip",
+                    headers={"Content-Disposition": f'attachment; filename="mfi-backup-{stamp}.json.gz"'})
 
 
 @router.get("/notifications")

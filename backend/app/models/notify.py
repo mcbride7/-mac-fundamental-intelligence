@@ -18,3 +18,11 @@ class AlertDelivery(Base):
     status: Mapped[str] = mapped_column(String(16))  # sent | failed | skipped
     error: Mapped[str | None] = mapped_column(String(300))
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Heartbeat(Base):
+    """Last time a background process checked in (the worker every 5 minutes)."""
+
+    __tablename__ = "heartbeats"
+    name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

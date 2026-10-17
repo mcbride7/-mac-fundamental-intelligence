@@ -35,6 +35,7 @@ celery_app.conf.beat_schedule = {
     "missing-data-15m": {"task": "app.worker.missing_data_task", "schedule": crontab(minute="*/15")},
     "market-data-recompute-30m": {"task": "app.worker.recompute_entity_task", "schedule": crontab(minute="*/30"),
                                   "args": ["market_data"]},
+    "heartbeat-5m": {"task": "app.worker.heartbeat_task", "schedule": crontab(minute="*/5")},
     "phone-alerts-2m": {"task": "app.worker.send_alerts_task", "schedule": crontab(minute="*/2")},
     "track-record-hourly": {"task": "app.worker.track_record_task", "schedule": crontab(minute=40)},
     "full-recompute-nightly": {"task": "app.worker.recompute_entity_task", "schedule": crontab(minute=30, hour=2),
@@ -116,3 +117,12 @@ def send_alerts_task() -> dict:
 
     with SessionLocal() as db:
         return notify.send_pending(db)
+
+
+@celery_app.task(name="app.worker.heartbeat_task")
+def heartbeat_task() -> str:
+    from app.services.ops import beat
+
+    with SessionLocal() as db:
+        beat(db)
+    return "ok"
