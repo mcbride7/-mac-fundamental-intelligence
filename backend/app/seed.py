@@ -43,6 +43,8 @@ SOURCES = [
     ("eurostat", "Eurostat", "1", "official", "https://ec.europa.eu/eurostat", "EA", None, 1440, {}),
     ("ons", "UK Office for National Statistics", "1", "official", "https://www.ons.gov.uk", "GB", None, 1440, {}),
     ("statssa", "Statistics South Africa", "1", "official", "https://www.statssa.gov.za", "ZA", None, 1440, {}),
+    ("statcan", "Statistics Canada", "1", "official", "https://www150.statcan.gc.ca", "CA", None, 1440, {}),
+    ("abs", "Australian Bureau of Statistics", "1", "official", "https://www.abs.gov.au", "AU", None, 1440, {}),
     ("finnhub", "Finnhub economic calendar", "2", "api", "https://finnhub.io", None, None, 360, {}),
     ("forexfactory", "Forex Factory calendar (forecasts)", "2", "api", "https://www.forexfactory.com/calendar",
      None, None, 720, {}),

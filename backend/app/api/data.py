@@ -157,7 +157,9 @@ def put_trust(body: TrustIn, db: Session = Depends(get_db), user_id: int = Depen
 
 @router.get("/sources")
 def sources(db: Session = Depends(get_db)):
-    return rows(db.scalars(select(Source).order_by(Source.tier, Source.key)))
+    from app.ingestion.registry import JOBS
+
+    return [{**r, "runnable": r["key"] in JOBS} for r in rows(db.scalars(select(Source).order_by(Source.tier, Source.key)))]
 
 
 @router.post("/sources/{key}/run")

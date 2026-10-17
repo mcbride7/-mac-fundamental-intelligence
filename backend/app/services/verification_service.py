@@ -204,7 +204,10 @@ def verify_pending(db: Session, fetchers: dict[str, OfficialFetcher] | None = No
         ind = db.get(Indicator, rel.indicator_id)
         fetch = None
         key = None
-        for k in ([ind.official_source_key] if ind.official_source_key else []) + ["fred"]:
+        from app.ingestion.official import OFFICIAL_BY_CODE
+
+        keys = [ind.official_source_key, OFFICIAL_BY_CODE.get(ind.code), "fred"]
+        for k in [k for k in keys if k]:
             if k in fetchers:
                 fetch, key = fetchers[k], k
                 break
@@ -238,6 +241,8 @@ def verify_pending(db: Session, fetchers: dict[str, OfficialFetcher] | None = No
 
 def data_health(db: Session) -> dict:
     now = utcnow()
+    from app.ingestion.registry import JOBS
+
     sources = []
     for src, h in db.execute(select(Source, SourceHealth).join(SourceHealth, SourceHealth.source_id == Source.id)
                              .order_by(Source.tier, Source.key)):
@@ -255,6 +260,7 @@ def data_health(db: Session) -> dict:
             "status": status if src.kind != "manual" else "OK", "last_success_at": h.last_success_at,
             "last_attempt_at": h.last_attempt_at, "expected_next_at": h.expected_next_at, "retries": h.retries,
             "last_error": h.last_error, "needs_manual_input": status in ("FAILED", "STALE"),
+            "runnable": src.key in JOBS,
         })
     counts = {s: db.scalar(select(func.count(EconomicRelease.id)).where(
         EconomicRelease.verification_status == s, EconomicRelease.is_current.is_(True))) or 0

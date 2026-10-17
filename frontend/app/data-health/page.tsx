@@ -121,7 +121,7 @@ export default function DataHealth() {
                     <td>{dateTime(s.last_success_at)}</td><td>{dateTime(s.expected_next_at)}</td><td>{s.retries}</td>
                     <td className="max-w-xs truncate text-muted" title={s.last_error || ""}>{s.last_error || ""}</td>
                     <td className="whitespace-nowrap">
-                      {["fred", "fed_rss", "ecb_rss", "boe_rss", "twelvedata", "finnhub", "forexfactory"].includes(s.key) && <button onClick={() => run(s.key)} className="mr-3 text-xs text-verify">Run now</button>}
+                      {s.runnable && <button onClick={() => run(s.key)} className="mr-3 text-xs text-verify">Run now</button>}
                       {s.needs_manual_input && <Link href="/data-input" className="text-xs text-hawk">Provide data manually</Link>}
                     </td>
                   </tr>))}</tbody>

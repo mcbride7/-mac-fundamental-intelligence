@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.ingestion import central_banks, forexfactory, fred, markets
+from app.ingestion import central_banks, forexfactory, fred, markets, official
 from app.ingestion.base import run_source
 
 JOBS = {
@@ -15,6 +15,10 @@ JOBS = {
     "twelvedata": markets.run_prices,
     "finnhub": markets.run_finnhub,
     "forexfactory": forexfactory.run_forexfactory,
+    "eurostat": official.runner("eurostat"),
+    "ons": official.runner("ons"),
+    "statcan": official.runner("statcan"),
+    "abs": official.runner("abs"),
 }
 
 
@@ -33,4 +37,6 @@ def official_fetchers() -> dict:
         out["fred"] = fred.official_value
         out["bls"] = fred.official_value
         out["bea"] = fred.official_value
+    for key in official.AGENCIES:
+        out[key] = official.official_value
     return out
