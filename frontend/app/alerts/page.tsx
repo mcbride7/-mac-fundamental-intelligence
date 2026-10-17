@@ -12,6 +12,31 @@ const KINDS = ["", "economic_surprise", "forecast_miss", "forecast_revision", "s
 
 const SEV: Record<string, string> = { CRITICAL: "border-l-hawk", HIGH: "border-l-hawk", MEDIUM: "border-l-amber", LOW: "border-l-line" };
 
+function PhoneAlerts() {
+  const { data, reload } = useApi<any>("/api/notifications");
+  const [msg, setMsg] = useState<string | null>(null);
+  const test = async () => {
+    setMsg("Sending…");
+    try { await post("/api/notifications/test"); setMsg("Sent. Check Telegram."); reload(); }
+    catch (e: any) { setMsg(e?.message || String(e)); }
+  };
+  if (!data) return null;
+  return (
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded border border-line bg-panel px-3 py-2 text-sm">
+      <span>
+        <span className={data.configured ? "text-dove" : "text-muted"}>{data.configured ? "● Phone alerts on (Telegram)" : "○ Phone alerts off"}</span>
+        {data.configured
+          ? <span className="text-muted"> · important alerts are sent within 2 minutes{data.last_status === "failed" ? ` · last send failed: ${data.last_error}` : ""}</span>
+          : <span className="text-muted"> · add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Railway to get alerts on your phone</span>}
+      </span>
+      <span className="flex items-center gap-3">
+        {msg && <span className="text-xs text-muted">{msg}</span>}
+        {data.configured && <Button kind="ghost" onClick={test}>Send test message</Button>}
+      </span>
+    </div>
+  );
+}
+
 export default function Alerts() {
   const [kind, setKind] = useState("");
   const [unread, setUnread] = useState(false);
@@ -27,6 +52,7 @@ export default function Alerts() {
           <Button kind="ghost" onClick={async () => { await post("/api/alerts/read-all"); reload(); }}>Mark all read</Button>
         </div>
       </PageTitle>
+      <PhoneAlerts />
       <ErrorBox error={error} />
       {loading && !data ? <Loading /> : !data?.alerts.length ? <Empty>No alerts.</Empty> : (
         <ul className="space-y-2">{data.alerts.map((a: any) => (

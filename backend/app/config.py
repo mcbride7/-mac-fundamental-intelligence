@@ -67,6 +67,16 @@ class Settings:
     finnhub_api_key: str | None = field(default_factory=lambda: os.getenv("FINNHUB_API_KEY") or None)
     twelvedata_api_key: str | None = field(default_factory=lambda: os.getenv("TWELVEDATA_API_KEY") or None)
 
+    # Phone alerts (Telegram). Create a bot with @BotFather, then message it once and get your chat id.
+    telegram_bot_token: str | None = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN") or None)
+    telegram_chat_id: str | None = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID") or None)
+    # Which alerts to send: HIGH severity always, plus these kinds (comma list; "all" sends everything)
+    telegram_alert_kinds: str = field(default_factory=lambda: os.getenv(
+        "TELEGRAM_ALERT_KINDS",
+        "high_conviction_setup,thesis_invalidation,bias_change,economic_surprise,cb_surprise,policy_shift,"
+        "data_conflict,source_failure,missing_data"))
+    public_url: str | None = field(default_factory=lambda: os.getenv("PUBLIC_URL") or None)
+
     # Verification
     verification_retry_minutes: int = field(
         default_factory=lambda: int(os.getenv("VERIFICATION_RETRY_MINUTES", "30"))

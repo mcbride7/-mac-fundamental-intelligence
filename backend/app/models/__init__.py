@@ -63,3 +63,4 @@ from app.models.system import (  # noqa: F401
     Watchlist,
 )
 from app.models.track import SignalRecord  # noqa: F401,E402
+from app.models.notify import AlertDelivery  # noqa: F401,E402

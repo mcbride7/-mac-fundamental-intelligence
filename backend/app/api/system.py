@@ -116,6 +116,23 @@ def alerts(unread: bool = False, kind: str | None = None, limit: int = 100, db: 
             "unread": db.scalar(select(func.count(Alert.id)).where(Alert.is_read.is_(False)))}
 
 
+@router.get("/notifications")
+def notifications_status(db: Session = Depends(get_db)):
+    from app.services import notify
+
+    return notify.status(db)
+
+
+@router.post("/notifications/test")
+def notifications_test():
+    from app.services import notify
+
+    ok, err = notify.send_telegram("✅ <b>Mac Fundamental Intelligence</b>\nPhone alerts are working.")
+    if not ok:
+        raise HTTPException(400, err)
+    return {"sent": True}
+
+
 @router.post("/alerts/{alert_id}/read")
 def mark_read(alert_id: int, db: Session = Depends(get_db)):
     a = db.get(Alert, alert_id)
