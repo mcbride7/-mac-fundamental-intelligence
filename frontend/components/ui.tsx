@@ -7,14 +7,15 @@ export function Panel({ title, action, children, className = "" }: {
   title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string;
 }) {
   return (
-    <section className={`rounded-md border border-line bg-panel ${className}`}>
+    <section className={`min-w-0 rounded-md border border-line bg-panel ${className}`}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
           <h2 className="text-[0.95rem] font-medium">{title}</h2>
           {action}
         </header>
       )}
-      <div className="p-4">{children}</div>
+      {/* wide tables scroll sideways inside the panel instead of stretching the page on phones */}
+      <div className="overflow-x-auto p-4">{children}</div>
     </section>
   );
 }

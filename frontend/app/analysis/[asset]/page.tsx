@@ -61,7 +61,7 @@ export default function Asset() {
             {Object.entries(a.factors).map(([k, v]: any) => {
               const w = WEIGHTS[k] || 10;
               return (
-                <li key={k} className="grid grid-cols-[11rem_1fr_3rem] items-center gap-3 text-sm">
+                <li key={k} className="grid grid-cols-[minmax(0,9rem)_1fr_2.5rem] items-center gap-2 text-sm sm:grid-cols-[11rem_1fr_3rem] sm:gap-3">
                   <span>{k}</span>
                   <span className="relative h-2 rounded bg-panel-2">
                     <span className={`absolute top-0 h-2 rounded ${v >= 0 ? "bg-dove" : "bg-hawk"}`}

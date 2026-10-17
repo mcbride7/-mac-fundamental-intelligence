@@ -112,7 +112,7 @@ function Policy({ d }: { d: any }) {
         <p className="mb-4 text-sm text-muted">Each component runs from −1 (dovish) to +1 (hawkish). Confidence {num(p.confidence, 0)}%.</p>
         <ul className="space-y-2">
           {Object.entries(p.components).map(([k, v]: any) => (
-            <li key={k} className="grid grid-cols-[11rem_1fr_3rem] items-center gap-3 text-sm">
+            <li key={k} className="grid grid-cols-[minmax(0,9rem)_1fr_2.5rem] items-center gap-2 text-sm sm:grid-cols-[11rem_1fr_3rem] sm:gap-3">
               <span className="capitalize">{k.replaceAll("_", " ")}</span>
               <span className="relative h-2 rounded bg-panel-2">
                 <span className={`absolute top-0 h-2 rounded ${v >= 0 ? "bg-hawk" : "bg-dove"}`}
