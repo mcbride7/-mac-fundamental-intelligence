@@ -62,3 +62,4 @@ from app.models.system import (  # noqa: F401
     UserTrustSettings,
     Watchlist,
 )
+from app.models.track import SignalRecord  # noqa: F401,E402

@@ -38,6 +38,14 @@ def scenarios(asset: str, db: Session = Depends(get_db)):
             "history": hist}
 
 
+@router.get("/track-record")
+def track_record_summary(db: Session = Depends(get_db)):
+    from app.services import track_record
+
+    track_record.evaluate(db)
+    return track_record.summary(db)
+
+
 @router.get("/trade-setups")
 def setups(db: Session = Depends(get_db)):
     return trading_engine.top_setups(db, 50)

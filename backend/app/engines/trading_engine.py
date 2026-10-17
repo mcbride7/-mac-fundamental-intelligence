@@ -148,6 +148,9 @@ def trade_setups_node(db: Session, ctx: Context) -> None:
                                    evidence_quality=a["evidence_quality"], forecast_confidence=a["forecast_confidence"],
                                    scenario_confidence=a["scenario_confidence"], differentials=a["differentials"],
                                    report=a["report"]))
+        from app.services import track_record
+
+        track_record.record(db, asset, a["grade"], a["direction"], a["confluence_total"])
         prev_bias = db.scalar(select(TradeBias).where(TradeBias.asset == asset).order_by(TradeBias.as_of.desc()))
         if prev_bias is None or prev_bias.bias != a["bias"]:
             db.add(TradeBias(asset=asset, bias=a["bias"], previous_bias=prev_bias.bias if prev_bias else None))

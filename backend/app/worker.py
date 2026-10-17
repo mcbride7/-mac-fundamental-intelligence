@@ -29,6 +29,7 @@ celery_app.conf.beat_schedule = {
     "missing-data-15m": {"task": "app.worker.missing_data_task", "schedule": crontab(minute="*/15")},
     "market-data-recompute-30m": {"task": "app.worker.recompute_entity_task", "schedule": crontab(minute="*/30"),
                                   "args": ["market_data"]},
+    "track-record-hourly": {"task": "app.worker.track_record_task", "schedule": crontab(minute=40)},
     "full-recompute-nightly": {"task": "app.worker.recompute_entity_task", "schedule": crontab(minute=30, hour=2),
                                "args": ["full"]},
 }
@@ -92,3 +93,11 @@ def missing_data_task() -> int:
             n += 1
         db.commit()
     return n
+
+
+@celery_app.task(name="app.worker.track_record_task")
+def track_record_task() -> int:
+    from app.services import track_record
+
+    with SessionLocal() as db:
+        return track_record.evaluate(db)

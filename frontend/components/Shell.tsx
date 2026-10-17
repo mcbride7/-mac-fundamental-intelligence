@@ -16,6 +16,7 @@ const NAV: { href: string; label: string }[] = [
   { href: "/bonds", label: "Bonds" },
   { href: "/scenarios", label: "Scenarios" },
   { href: "/analysis", label: "Fundamental analysis" },
+  { href: "/track-record", label: "Track record" },
   { href: "/research", label: "AI research" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/alerts", label: "Alerts" },
