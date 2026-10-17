@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analysis, central_banks, data, economic, manual, markets, system
+from app.api import analysis, auth, central_banks, data, economic, manual, markets, system
 from app.config import settings
 from app.db import SessionLocal, init_db
 from app.seed import seed
@@ -37,7 +37,7 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
-for r in (system, manual, data, central_banks, economic, markets, analysis):
+for r in (auth, system, manual, data, central_banks, economic, markets, analysis):
     app.include_router(r.router)
 
 

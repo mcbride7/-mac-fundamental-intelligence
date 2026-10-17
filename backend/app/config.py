@@ -37,7 +37,12 @@ class Settings:
     use_timescale: bool = field(default_factory=lambda: _bool("USE_TIMESCALE", True))
 
     # Security
+    # API_TOKEN: for scripts and the /docs test page. APP_PASSWORD: what you type on the login page
+    # (defaults to API_TOKEN, so an existing deployment keeps working). SECRET_KEY signs login sessions.
     api_token: str | None = field(default_factory=lambda: os.getenv("API_TOKEN") or None)
+    app_password: str | None = field(default_factory=lambda: os.getenv("APP_PASSWORD") or os.getenv("API_TOKEN") or None)
+    secret_key: str | None = field(default_factory=lambda: os.getenv("SECRET_KEY") or None)
+    session_days: int = field(default_factory=lambda: int(os.getenv("SESSION_DAYS", "30")))
     cors_origins: list[str] = field(
         default_factory=lambda: _list("CORS_ORIGINS", "http://localhost:3000")
     )

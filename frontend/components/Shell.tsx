@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { api } from "@/lib/api";
+import { api, logout } from "@/lib/api";
 
 const NAV: { href: string; label: string }[] = [
   { href: "/", label: "Home" },
@@ -58,6 +58,7 @@ function DataStatus() {
 export default function Shell({ children }: { children: ReactNode }) {
   const path = usePathname() || "/";
   const [open, setOpen] = useState(false);
+  if (path === "/login") return <main className="mx-auto max-w-md px-4 py-16">{children}</main>;
   const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[15rem_1fr]">
@@ -82,9 +83,14 @@ export default function Shell({ children }: { children: ReactNode }) {
           <button className="rounded border border-line px-2 py-1 text-sm lg:hidden" onClick={() => setOpen(!open)}
             aria-expanded={open}>Menu</button>
           <DataStatus />
-          <Link href="/data-input" className="rounded bg-verify px-3 py-1.5 text-sm font-medium text-ink hover:bg-verify/90">
-            + Add data
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/data-input" className="whitespace-nowrap rounded bg-verify px-3 py-1.5 text-sm font-medium text-ink hover:bg-verify/90">
+              + Add data
+            </Link>
+            <button type="button" onClick={logout} className="rounded border border-line px-2 py-1.5 text-sm text-muted hover:text-text">
+              Log out
+            </button>
+          </div>
         </header>
         <main className="mx-auto max-w-[1400px] px-4 py-6 lg:px-8">{children}</main>
       </div>

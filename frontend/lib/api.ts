@@ -3,7 +3,26 @@
 import { useCallback, useEffect, useState } from "react";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || "";
+// Login session kept in this browser (set by the login page). The old NEXT_PUBLIC_API_TOKEN still
+// works as a fallback so an existing deployment keeps running, but remove it from Railway: anything
+// NEXT_PUBLIC_ is readable by anyone who opens the website.
+const SESSION_KEY = "mfi_session";
+const LEGACY_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || "";
+
+export function getSession(): string {
+  if (typeof window === "undefined") return "";
+  try { return window.localStorage.getItem(SESSION_KEY) || ""; } catch { return ""; }
+}
+export function setSession(token: string | null) {
+  try {
+    if (token) window.localStorage.setItem(SESSION_KEY, token);
+    else window.localStorage.removeItem(SESSION_KEY);
+  } catch { /* private mode: session lasts this tab only */ }
+}
+export function logout() {
+  setSession(null);
+  window.location.href = "/login";
+}
 
 export class ApiError extends Error {
   status: number;
@@ -17,7 +36,8 @@ export class ApiError extends Error {
 
 function headers(extra?: HeadersInit): HeadersInit {
   const h: Record<string, string> = {};
-  if (TOKEN) h["Authorization"] = `Bearer ${TOKEN}`;
+  const token = getSession() || LEGACY_TOKEN;
+  if (token) h["Authorization"] = `Bearer ${token}`;
   return { ...h, ...(extra as Record<string, string>) };
 }
 
@@ -29,6 +49,11 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
+  if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/api/auth/")
+      && window.location.pathname !== "/login") {
+    setSession(null);
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
   if (!res.ok) throw new ApiError(res.status, data?.detail ?? data);
   return data as T;
 }

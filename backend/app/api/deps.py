@@ -6,16 +6,17 @@ from datetime import date, datetime
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import inspect
 
-from app.config import settings
 from app.db import get_db  # noqa: F401  (re-export)
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
-    """If API_TOKEN is set, every request must send `Authorization: Bearer <token>`."""
-    if not settings.api_token:
-        return
-    if authorization != f"Bearer {settings.api_token}":
-        raise HTTPException(401, "Invalid or missing API token")
+    """Every request must send `Authorization: Bearer <token>`, where the token is either a login
+    session (from /api/auth/login) or API_TOKEN itself (for scripts and the /docs page)."""
+    from app.core.auth import token_ok
+
+    bearer = authorization[7:] if authorization and authorization.startswith("Bearer ") else None
+    if not token_ok(bearer):
+        raise HTTPException(401, "Please log in")
 
 
 def current_user_id(x_user_id: int | None = Header(default=None)) -> int:
