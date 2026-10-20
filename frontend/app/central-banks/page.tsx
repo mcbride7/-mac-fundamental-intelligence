@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import CbShortcuts from "@/components/CbShortcuts";
 import { ErrorBox, Loading, PageTitle, PolicyDial } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { date, num, signed, toneClass } from "@/lib/format";
@@ -33,6 +34,9 @@ export default function CentralBanks() {
           ))}
         </div>
       )}
+      <div id="shortcuts" className="mt-8">
+        <CbShortcuts names={Object.fromEntries((data || []).map((b) => [b.code, b.name]))} />
+      </div>
     </>
   );
 }

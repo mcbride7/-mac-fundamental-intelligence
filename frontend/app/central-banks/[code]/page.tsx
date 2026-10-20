@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+import CbShortcuts from "@/components/CbShortcuts";
 import StatementDiff from "@/components/StatementDiff";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, PolicyDial, Stat, StatusBadge } from "@/components/ui";
 import { post, useApi } from "@/lib/api";
@@ -15,6 +16,7 @@ export default function Bank() {
   const { code } = useParams<{ code: string }>();
   const { data: d, error, loading, reload } = useApi<any>(`/api/central-banks/${code}`);
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
+  const [ver, setVer] = useState(0); // bumped after a fetched document is saved, so the tabs reload
   if (loading && !d) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   if (!d) return null;
@@ -32,6 +34,7 @@ export default function Bank() {
           </button>
         ))}
       </div>
+      <div key={ver}>
       {tab === "Overview" && <Overview d={d} />}
       {tab === "Policy" && <Policy d={d} />}
       {tab === "Statement comparison" && <Comparison code={code} onAdded={reload} />}
@@ -40,6 +43,10 @@ export default function Bank() {
       {tab === "Where are we now" && <WhereAreWe w={d.where_are_we} />}
       {tab === "Market expectations" && <Expectations d={d} />}
       {tab === "History" && <History code={code} />}
+      {(tab === "Overview" || tab === "Statement comparison" || tab === "Projections") && (
+        <div className="mt-6"><CbShortcuts code={d.code || code} names={{ [d.code || code]: d.name }} onSaved={() => { reload(); setVer((v) => v + 1); }} /></div>
+      )}
+      </div>
     </>
   );
 }

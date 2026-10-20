@@ -21,7 +21,10 @@ from app.models import (
     PolicyScore,
     ProjectionVintage,
 )
+from app.ingestion.base import SourceUnavailable
+from app.services import cb_shortcuts
 from app.services import data_access as da
+from app.services import manual_service as ms
 from app.services import recompute
 from app.services.audit import audit
 from app.services.storage import sha256
@@ -75,6 +78,44 @@ class MeetingIn(BaseModel):
 @router.get("")
 def list_banks(db: Session = Depends(get_db)):
     return cb_engine.heatmap(db)
+
+
+class FetchIn(BaseModel):
+    kind: str = "statement"  # "statement" or "projections"
+    url: str | None = None   # a document link pasted by the person; empty = find the newest one
+
+
+@router.get("/shortcuts")
+def shortcuts():
+    """Official statement and projections pages for every central bank."""
+    return cb_shortcuts.serialize()
+
+
+@router.post("/{cb_id}/fetch")
+def fetch_document(cb_id: str, body: FetchIn, db: Session = Depends(get_db),
+                   user_id: int = Depends(current_user_id)):
+    """Fetch the latest statement or projections (or the pasted link) and open it for review."""
+    cb = _cb(db, cb_id)
+    if body.kind not in ("statement", "projections"):
+        raise HTTPException(422, "kind must be 'statement' or 'projections'")
+    url = (body.url or "").strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(422, "Paste a full link starting with https://")
+    if not url:
+        try:
+            url = cb_shortcuts.latest_url(cb.code, body.kind)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except SourceUnavailable as exc:
+            raise HTTPException(502, str(exc)) from exc
+    hint = {"central_bank_code": cb.code}
+    if body.kind == "statement":
+        hint["doc_type"] = "statement"
+    sub = ms.submit_url(db, url, user_id, hint,
+                        "cb_statement" if body.kind == "statement" else "cb_projections")
+    out = ms.serialize_submission(db, sub)
+    out["resolved_url"] = url
+    return out
 
 
 @router.get("/{cb_id}")
