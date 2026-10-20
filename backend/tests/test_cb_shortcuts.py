@@ -110,3 +110,19 @@ def test_fetch_endpoint_opens_review(client, monkeypatch):
     # no automatic projections for the PBOC: a clear message, not a crash
     r = client.post("/api/central-banks/PBOC/fetch", json={"kind": "projections"})
     assert r.status_code == 502 and "paste" in r.json()["detail"].lower()
+
+
+def test_read_full_statement_and_pairs(client):
+    a = ("The Committee decided to maintain the target range for the federal funds rate. Inflation remains elevated. "
+         "The Committee will continue to reduce its holdings of Treasury securities. ") * 30
+    b = ("The Committee decided to lower the target range for the federal funds rate. Inflation has eased. "
+         "The Committee will continue to reduce its holdings of Treasury securities. ") * 30
+    id1 = client.post("/api/central-banks/FED/statements", json={"text": a, "published_date": "2026-07-29"}).json()["id"]
+    id2 = client.post("/api/central-banks/FED/statements", json={"text": b, "published_date": "2026-09-16"}).json()["id"]
+    full = client.get(f"/api/central-banks/FED/statements/{id1}").json()
+    assert full["text"] == a and len(full["text"]) > 1500  # the whole text, not the short preview
+    assert client.get(f"/api/central-banks/ECB/statements/{id1}").status_code == 404
+    pairs = client.get("/api/central-banks/FED/statement-pairs").json()
+    assert pairs[0]["latest_id"] == id2 and pairs[0]["previous_id"] == id1
+    cmp = client.get(f"/api/central-banks/FED/statement-comparison?statement_id={id2}").json()
+    assert cmp["previous"]["id"] == id1 and cmp["latest"]["text"] == b

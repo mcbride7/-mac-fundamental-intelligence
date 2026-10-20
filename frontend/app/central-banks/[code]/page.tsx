@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import CbShortcuts from "@/components/CbShortcuts";
-import StatementDiff from "@/components/StatementDiff";
+import StatementCompare, { StatementReader } from "@/components/StatementCompare";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, PolicyDial, Stat, StatusBadge } from "@/components/ui";
 import { post, useApi } from "@/lib/api";
 import { date, dateTime, num, signed, toneClass } from "@/lib/format";
@@ -37,7 +37,7 @@ export default function Bank() {
       <div key={ver}>
       {tab === "Overview" && <Overview d={d} />}
       {tab === "Policy" && <Policy d={d} />}
-      {tab === "Statement comparison" && <Comparison code={code} onAdded={reload} />}
+      {tab === "Statement comparison" && <StatementCompare code={code} onAdded={reload} />}
       {tab === "Projections" && <Projections code={code} />}
       {tab === "Forecast accuracy" && <Accuracy acc={d.forecast_accuracy} />}
       {tab === "Where are we now" && <WhereAreWe w={d.where_are_we} />}
@@ -86,6 +86,7 @@ function Overview({ d }: { d: any }) {
                 <span className={toneClass(d.latest_statement.tone_label)}>Tone {signed(d.latest_statement.tone_score, 0)}</span>
               </div>
               <p className="note text-sm text-muted">{d.latest_statement.excerpt}…</p>
+              <ReadFull code={d.code} id={d.latest_statement.id} />
               {d.statement_changes && (
                 <p className="mt-3 text-sm">{d.statement_changes.changed} changes vs previous statement:{" "}
                   <span className={toneClass(d.statement_changes.direction)}>{d.statement_changes.direction}</span></p>
@@ -107,6 +108,16 @@ function Overview({ d }: { d: any }) {
         </ul>
       </Panel>
     </div>
+  );
+}
+
+function ReadFull({ code, id }: { code: string; id: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="mt-2"><Button kind="ghost" onClick={() => setOpen(true)}>Read the full statement</Button></div>
+      {open && <StatementReader code={code} id={id} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
@@ -135,53 +146,6 @@ function Policy({ d }: { d: any }) {
         <p className={`text-lg ${toneClass(p.shift_classification)}`}>{p.shift_classification}</p>
         <p className="text-sm text-muted">{num(p.previous_score, 0)} → {num(p.score, 0)} ({signed(p.shift, 0)})</p>
         <ul className="note mt-3 list-disc space-y-1 pl-5 text-sm">{p.explanation.map((e: string, i: number) => <li key={i}>{e}</li>)}</ul>
-      </Panel>
-    </div>
-  );
-}
-
-function Comparison({ code, onAdded }: { code: string; onAdded: () => void }) {
-  const { data, error, reload } = useApi<any>(`/api/central-banks/${code}/statement-comparison`);
-  const [text, setText] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-  const add = async () => {
-    try {
-      const r = await post(`/api/central-banks/${code}/statements`, { text });
-      setMsg(r.recompute?.message || "Saved");
-      setText("");
-      reload();
-      onAdded();
-    } catch (e: any) { setMsg(e.message); }
-  };
-  return (
-    <div className="space-y-6">
-      {data ? (
-        <Panel title={`${data.previous.title} → ${data.latest.title}`}>
-          <div className="mb-4 flex flex-wrap gap-4 text-sm">
-            <span>Direction: <span className={toneClass(data.summary.direction)}>{data.summary.direction}</span></span>
-            <span>Tone {signed(data.summary.tone_previous, 0)} → {signed(data.summary.tone_latest, 0)}</span>
-            <span>{data.summary.changed} changed, {data.summary.unchanged} unchanged sentences</span>
-          </div>
-          {data.summary.tone_method && (
-            <p className="mb-3 text-xs text-muted">
-              Tone scored by {data.summary.tone_method}
-              {data.summary.tone_ai_latest !== null && data.summary.tone_ai_latest !== undefined &&
-                ` (AI ${signed(data.summary.tone_ai_latest, 0)}, word list ${signed(data.summary.tone_lexicon_latest, 0)})`}
-              {data.summary.tone_ai_reasons?.length > 0 && `: ${data.summary.tone_ai_reasons.join("; ")}`}
-            </p>
-          )}
-          {data.summary.ai_interpretation && <p className="note mb-4">{data.summary.ai_interpretation}</p>}
-          <p className="mb-3 text-xs text-muted">Left border: red = hawkish, green = dovish, amber = important neutral or mixed, grey = minor. Inserted words are highlighted, removed words struck through.</p>
-          <StatementDiff changes={data.changes} />
-        </Panel>
-      ) : <Empty>{error ? `Couldn't load the comparison (${error}).` : "A comparison appears once two statements are stored. The feed adds each new statement after a meeting, or paste an earlier statement below."}</Empty>}
-      <Panel title="Add a statement by pasting its text">
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6}
-          className="w-full rounded border border-line bg-ink p-3 text-sm" placeholder="Paste the full statement…" />
-        <div className="mt-2 flex items-center gap-3">
-          <Button disabled={text.trim().length < 50} onClick={add}>Save and compare</Button>
-          {msg && <span className="text-sm text-muted">{msg}</span>}
-        </div>
       </Panel>
     </div>
   );

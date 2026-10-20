@@ -17,6 +17,7 @@ from app.models import (
     CentralBankProjection,
     CentralBankSpeech,
     CentralBankStatement,
+    CentralBankStatementVersion,
     ForecastRevision,
     PolicyScore,
     ProjectionVintage,
@@ -139,6 +140,34 @@ def statements(cb_id: str, db: Session = Depends(get_db)):
         d = row(s)
         d["text"] = s.text[:1500]
         out.append(d)
+    return out
+
+
+@router.get("/{cb_id}/statements/{statement_id}")
+def statement_full(cb_id: str, statement_id: int, db: Session = Depends(get_db)):
+    """One statement with its whole text, for reading."""
+    cb = _cb(db, cb_id)
+    st = db.get(CentralBankStatement, statement_id)
+    if st is None or st.central_bank_id != cb.id:
+        raise HTTPException(404, "Statement not found")
+    return cb_engine._st(st) | {"text": st.text, "doc_type": st.doc_type, "meeting_date": st.meeting_date}
+
+
+@router.get("/{cb_id}/statement-pairs")
+def statement_pairs(cb_id: str, db: Session = Depends(get_db)):
+    """Every stored comparison (newest first) so an older pair of statements can be picked."""
+    cb = _cb(db, cb_id)
+    out = []
+    for v in db.scalars(select(CentralBankStatementVersion).where(CentralBankStatementVersion.central_bank_id == cb.id)
+                        .order_by(CentralBankStatementVersion.id.desc())):
+        prev, latest = db.get(CentralBankStatement, v.previous_statement_id), db.get(CentralBankStatement,
+                                                                                     v.latest_statement_id)
+        if prev is None or latest is None:
+            continue
+        out.append({"latest_id": latest.id, "previous_id": prev.id,
+                    "latest_title": latest.title, "latest_date": latest.published_at,
+                    "previous_title": prev.title, "previous_date": prev.published_at,
+                    "direction": (v.summary or {}).get("direction")})
     return out
 
 
