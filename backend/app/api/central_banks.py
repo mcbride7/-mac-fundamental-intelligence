@@ -23,7 +23,7 @@ from app.models import (
     ProjectionVintage,
 )
 from app.ingestion.base import SourceUnavailable
-from app.services import cb_shortcuts
+from app.services import cb_edit, cb_shortcuts
 from app.services import data_access as da
 from app.services import manual_service as ms
 from app.services import recompute
@@ -141,6 +141,29 @@ def statements(cb_id: str, db: Session = Depends(get_db)):
         d["text"] = s.text[:1500]
         out.append(d)
     return out
+
+
+class OverviewEditIn(BaseModel):
+    field: str
+    value: str | float | None = None
+    period: str | None = None
+    indicator_code: str | None = None
+    reason: str | None = None
+
+
+@router.patch("/{cb_id}/overview")
+def edit_overview(cb_id: str, body: OverviewEditIn, db: Session = Depends(get_db),
+                  user_id: int = Depends(current_user_id)):
+    """Click-to-edit for a number on the bank's Overview (see services/cb_edit.py)."""
+    cb = _cb(db, cb_id)
+    try:
+        return cb_edit.edit(db, cb, body.field, body.value, body.period, body.indicator_code, body.reason, user_id)
+    except ms.CommitBlocked as exc:
+        raise HTTPException(422, {"message": "Check this value", "problems": exc.problems})
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.get("/{cb_id}/statements/{statement_id}")

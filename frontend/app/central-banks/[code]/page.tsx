@@ -4,9 +4,10 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import CbShortcuts from "@/components/CbShortcuts";
+import QuickEdit from "@/components/QuickEdit";
 import StatementCompare, { StatementReader } from "@/components/StatementCompare";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, PolicyDial, Stat, StatusBadge } from "@/components/ui";
-import { post, useApi } from "@/lib/api";
+import { patch, post, useApi } from "@/lib/api";
 import { date, dateTime, num, signed, toneClass } from "@/lib/format";
 
 const TABS = ["Overview", "Policy", "Statement comparison", "Projections", "Forecast accuracy", "Where are we now",
@@ -35,7 +36,7 @@ export default function Bank() {
         ))}
       </div>
       <div key={ver}>
-      {tab === "Overview" && <Overview d={d} />}
+      {tab === "Overview" && <Overview d={d} onSaved={reload} />}
       {tab === "Policy" && <Policy d={d} />}
       {tab === "Statement comparison" && <StatementCompare code={code} onAdded={reload} />}
       {tab === "Projections" && <Projections code={code} />}
@@ -51,22 +52,69 @@ export default function Bank() {
   );
 }
 
-function Overview({ d }: { d: any }) {
+function Overview({ d, onSaved }: { d: any; onSaved: () => void }) {
   const p = d.policy;
+  const edit = async (field: string, value: string | null, extra: Record<string, unknown> = {}) => {
+    await patch(`/api/central-banks/${d.code}/overview`, { field, value, ...extra });
+    onSaved();
+  };
+  const src = (label: string) => d.data_status.sources.find((s: any) => s.label === label);
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const lastQuarter = (() => {
+    const t = new Date(); const q = Math.floor(t.getMonth() / 3);
+    return q === 0 ? `${t.getFullYear() - 1}Q4` : `${t.getFullYear()}Q${q}`;
+  })();
+  const nb = (v: any) => (v === null || v === undefined ? "" : String(v));
+  const rateSrc = src("Policy rate");
+  const inflSrc = src("Headline inflation");
+  const gdpSrc = src("GDP");
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
       <div className="space-y-6">
         <Panel>
+          <p className="mb-4 text-xs text-muted">Click a number with a dotted underline to change it. Enter saves, Esc cancels.
+            Values you type are saved as unverified until the official source confirms them.</p>
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-            <Stat label="Current rate" value={num(d.current_rate, 2, "%")} sub={`Previous ${num(d.previous_rate, 2, "%")}`} />
-            <Stat label="Last decision" value={d.last_decision || "—"} sub={d.last_change_bps ? `${signed(d.last_change_bps, 0)} bp` : undefined} />
-            <Stat label="Next meeting" value={date(d.next_meeting)} sub={d.expected_decision ? `Expected: ${d.expected_decision}` : "No expectation recorded"} />
+            <Stat label="Current rate"
+              value={<QuickEdit label="Current rate" display={num(d.current_rate, 2, "%")} initial={nb(d.current_rate)}
+                period={d.rate_from_indicator ? { value: rateSrc?.period || thisMonth } : undefined}
+                onSave={(v, per, reason) => edit("current_rate", v, { period: per, reason })} />}
+              sub={d.rate_from_indicator
+                ? <span title="Worked out from the rate history">Previous {num(d.previous_rate, 2, "%")}</span>
+                : <>Previous <QuickEdit label="Previous rate" display={num(d.previous_rate, 2, "%")} initial={nb(d.previous_rate)}
+                    onSave={(v) => edit("previous_rate", v)} /></>} />
+            <Stat label="Last decision"
+              value={d.rate_from_indicator
+                ? <span title="Worked out from the rate history: change the current rate to update it">{d.last_decision || "—"}</span>
+                : <QuickEdit label="Last decision" kind="decision" display={d.last_decision || "—"} initial={d.last_decision || "HOLD"}
+                    onSave={(v) => edit("last_decision", v)} />}
+              sub={d.last_change_bps ? `${signed(d.last_change_bps, 0)} bp` : undefined} />
+            <Stat label="Next meeting"
+              value={<QuickEdit label="Next meeting" kind="date" display={date(d.next_meeting)} initial={nb(d.next_meeting).slice(0, 10)}
+                onSave={(v) => edit("next_meeting", v)} />}
+              sub={d.next_meeting
+                ? <>Expected: <QuickEdit label="Expected decision" kind="decision" allowEmpty
+                    display={d.expected_decision || "not set"} initial={d.expected_decision || ""}
+                    onSave={(v) => edit("expected_decision", v)} /></>
+                : "Set the date first"} />
             <Stat label="Policy" value={p ? `${num(p.score, 0)}/100` : "—"} tone={toneClass(p?.classification)}
               sub={p ? `${p.classification}, ${p.direction.toLowerCase()}` : undefined} />
             <Stat label="Momentum" value={d.momentum || "—"} tone={toneClass(d.momentum)} />
-            <Stat label="Inflation" value={num(d.inflation, 1, "%")} />
-            <Stat label="GDP (latest)" value={num(d.growth, 1, "%")} />
-            <Stat label="Unemployment, 6m change" value={signed(d.unemployment_change_6m, 2, " pp")} />
+            <Stat label="Inflation"
+              value={d.edit_codes?.inflation
+                ? <QuickEdit label="Inflation" display={num(d.inflation, 1, "%")} initial={nb(d.inflation)}
+                    period={{ value: inflSrc?.period || thisMonth }}
+                    onSave={(v, per, reason) => edit("release", v, { indicator_code: d.edit_codes.inflation, period: per, reason })} />
+                : num(d.inflation, 1, "%")}
+              sub={<>Target <QuickEdit label="Inflation target" display={num(d.inflation_target, 1, "%")} initial={nb(d.inflation_target)}
+                onSave={(v) => edit("inflation_target", v)} /></>} />
+            <Stat label="GDP (latest)"
+              value={d.edit_codes?.gdp
+                ? <QuickEdit label="GDP" display={num(d.growth, 1, "%")} initial={nb(d.growth)}
+                    period={{ value: gdpSrc?.period || lastQuarter, quarterly: true }}
+                    onSave={(v, per, reason) => edit("release", v, { indicator_code: d.edit_codes.gdp, period: per, reason })} />
+                : num(d.growth, 1, "%")} />
+            <Stat label="Unemployment, 6m change" value={<span title="Worked out from the unemployment rate history">{signed(d.unemployment_change_6m, 2, " pp")}</span>} />
           </div>
         </Panel>
         <Panel title="Current fundamental implication">
@@ -100,7 +148,10 @@ function Overview({ d }: { d: any }) {
         <ul className="space-y-2 text-sm">
           {d.data_status.sources.map((s: any) => (
             <li key={`${s.id}-${s.label}`} className="flex items-start justify-between gap-2">
-              <span>{s.label}<span className="block text-xs text-muted">{s.value} ({s.period}), {s.source || s.input_method}</span></span>
+              <span>{s.label}<span className="block text-xs text-muted">
+                {s.indicator ? <QuickEdit label={s.label} display={String(s.value)} initial={String(s.value)}
+                  onSave={(v, _per, reason) => edit("release", v, { indicator_code: s.indicator, period: s.period, reason })} />
+                  : s.value} ({s.period}), {s.source || s.input_method}</span></span>
               <StatusBadge status={s.status} />
             </li>
           ))}

@@ -813,22 +813,33 @@ def quick_edit_event(db: Session, event_id: int, field: str, value: float | None
 
     if value is None:
         raise ValueError("To remove an actual, delete the upload it came from on Data health")
+    res = quick_release(db, ind, ev.reference_period, value, user_id, reason, "Calendar edit", "calendar_edit",
+                        consensus=ev.consensus, previous=ev.previous,
+                        release_date=ev.scheduled_at.date().isoformat() if ev.scheduled_at else None)
+    return {"event_id": ev.id, "field": field, "value": value, **res}
+
+
+def quick_release(db: Session, ind: Indicator, period: str, value: float, user_id: int | None, reason: str | None,
+                  source_name: str, method: str, consensus: float | None = None, previous: float | None = None,
+                  release_date: str | None = None) -> dict:
+    """Save one typed number as a release through the normal manual-data path (validation, revisions,
+    verification, audit, re-analysis). Raises CommitBlocked when the value needs a fix or a reason."""
     sub = _new_submission(db, InputMethod.TYPED.value, user_id,
-                          {"indicator_code": ind.code, "reference_period": ev.reference_period})
+                          {"indicator_code": ind.code, "reference_period": period})
     sub.content_type, sub.content_type_confidence = "economic_release", 100.0
-    sub.raw_text = f"{ind.name} {ev.reference_period}: {value} (edited on the calendar)"
-    fields = {"indicator_code": ind.code, "indicator_text": ind.name, "reference_period": ev.reference_period,
-              "actual": value, "consensus": ev.consensus, "previous": ev.previous, "unit": ind.unit,
-              "country": ind.country, "currency": ind.currency, "source_name": "Calendar edit"}
-    if ev.scheduled_at:
-        fields["release_date"] = ev.scheduled_at.date().isoformat()
+    sub.raw_text = f"{ind.name} {period}: {value} ({source_name.lower()})"
+    fields = {"indicator_code": ind.code, "indicator_text": ind.name, "reference_period": period,
+              "actual": value, "consensus": consensus, "previous": previous, "unit": ind.unit,
+              "country": ind.country, "currency": ind.currency, "source_name": source_name}
+    if release_date:
+        fields["release_date"] = release_date
     p = ExtractedDataPoint(submission_id=sub.id, row_index=0, kind="economic_release", fields=fields,
                            field_confidence={k: 100.0 for k in fields})
     _validate_point(db, p)
     db.add(p)
-    audit(db, "manual_submission", sub.id, "submitted", user_id, method="calendar_edit")
+    audit(db, "manual_submission", sub.id, "submitted", user_id, method=method)
     db.commit()
     res = commit(db, sub.id, user_id, rows=[{"id": p.id, "include": True, "override_reason": reason}])
     if res.get("skipped"):
         raise CommitBlocked(res["skipped"])
-    return {"event_id": ev.id, "field": field, "value": value, **res}
+    return res

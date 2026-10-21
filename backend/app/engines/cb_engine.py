@@ -295,7 +295,10 @@ def dashboard(db: Session, cb: CentralBank) -> dict:
     return {
         "code": cb.code, "name": cb.name, "short_name": cb.short_name, "currency": cb.currency,
         "country": cb.country, "inflation_target": cb.inflation_target,
-        "current_rate": snap.policy_rate, "previous_rate": cb.previous_rate, "last_decision": snap.last_decision,
+        "current_rate": snap.policy_rate, "previous_rate": _previous_rate(cb, snap),
+        "rate_from_indicator": cb.code in fnd.POLICY_RATE,
+        "edit_codes": {"rate": fnd.POLICY_RATE.get(cb.code), "inflation": fnd.HEADLINE_INFL.get(fnd.COUNTRY.get(cb.currency, cb.country)),
+                       "gdp": fnd.GDP.get(fnd.COUNTRY.get(cb.currency, cb.country))}, "last_decision": snap.last_decision,
         "last_change_bps": snap.last_change_bps,
         "next_meeting": nxt.meeting_date if nxt else None, "expected_decision": nxt.expected_decision if nxt else None,
         "policy": ({"score": ps.score, "classification": ps.classification, "direction": ps.direction,
@@ -320,6 +323,13 @@ def dashboard(db: Session, cb: CentralBank) -> dict:
                         "manual_inputs": [s for s in snap.sources if s["input_method"] != "automated"],
                         "sources": snap.sources},
     }
+
+
+def _previous_rate(cb: CentralBank, snap) -> float | None:
+    """Rate before the last move. Banks with a rate indicator: worked out from its history."""
+    if cb.code in fnd.POLICY_RATE and snap.policy_rate is not None and snap.last_decision:
+        return round(snap.policy_rate - (snap.last_change_bps or 0) / 100, 4)
+    return cb.previous_rate
 
 
 def _momentum(db: Session, cb: CentralBank) -> str | None:
