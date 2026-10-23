@@ -78,6 +78,10 @@ export default function Shell({ children }: { children: ReactNode }) {
             </Link>
           ))}
         </nav>
+        {/* which code this page was built from, so you can check a Railway deploy took effect */}
+        <p className="px-5 pb-5 text-xs text-muted" title="Website version (the GitHub commit it was built from)">
+          Version {(process.env.NEXT_PUBLIC_BUILD || "dev").slice(0, 7)}
+        </p>
       </aside>
       <div className="min-w-0">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-ink/95 px-4 py-2.5 backdrop-blur lg:px-8">

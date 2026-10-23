@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -43,7 +44,9 @@ for r in (auth, system, manual, data, central_banks, economic, markets, analysis
 
 @app.get("/health", tags=["system"])
 def health():
-    return {"status": "ok", "app": settings.app_name}
+    # version = the GitHub commit Railway deployed, so you can check an update went live
+    return {"status": "ok", "app": settings.app_name,
+            "version": (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "dev")[:7]}
 
 
 @app.get("/health/deep", tags=["system"])
