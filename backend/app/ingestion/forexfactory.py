@@ -51,6 +51,9 @@ _add("USD", "US_RETAIL_SALES_MOM", "Retail Sales m/m")
 _add("USD", "US_ISM_MANUF", "ISM Manufacturing PMI")
 _add("USD", "US_ISM_SERVICES", "ISM Services PMI")
 _add("USD", "US_FED_RATE", "Federal Funds Rate")
+_add("USD", "US_JOBLESS_CLAIMS", "Unemployment Claims")
+_add("USD", "US_JOLTS", "JOLTS Job Openings")
+_add("USD", "US_ADP", "ADP Non-Farm Employment Change")
 
 _add("EUR", "EA_HICP_YOY", "CPI Flash Estimate y/y", "Final CPI y/y", "CPI y/y")
 _add("EUR", "EA_CORE_HICP_YOY", "Core CPI Flash Estimate y/y", "Final Core CPI y/y", "Core CPI y/y")
@@ -97,6 +100,8 @@ def parse_value(raw, unit: str | None) -> float | None:
         s = s[:-1]
         if unit == "k":
             mult = {"K": 1, "M": 1_000, "B": 1_000_000, "T": 1_000_000_000}[suffix]
+        elif unit == "m":
+            mult = {"K": 0.001, "M": 1, "B": 1_000, "T": 1_000_000}[suffix]
         else:
             mult = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000, "T": 1_000_000_000_000}[suffix]
     v = parse_number(s)
@@ -106,10 +111,14 @@ def parse_value(raw, unit: str | None) -> float | None:
 def reference_period(frequency: str, released: datetime, title: str) -> str:
     """Which period a release describes, from its release date.
     meeting -> the meeting month; quarterly -> the last completed quarter;
+    weekly -> the week-ending Saturday before the release (e.g. Thursday's jobless claims);
     monthly -> the previous month (a flash estimate late in the month describes that same month)."""
     d = released.date()
     if frequency == "meeting":
         return f"{d.year}-{d.month:02d}"
+    if frequency == "weekly":
+        back = (d.weekday() - 5) % 7 or 7
+        return (d - timedelta(days=back)).isoformat()
     if frequency == "quarterly":
         q = (d.month - 1) // 3 + 1
         y, q = (d.year, q - 1) if q > 1 else (d.year - 1, 4)

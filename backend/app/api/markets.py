@@ -151,8 +151,32 @@ def divergence(db: Session = Depends(get_db)):
 @router.get("/macro/regime")
 def regime(db: Session = Depends(get_db)):
     cur = db.scalar(select(MacroRegime).order_by(MacroRegime.as_of.desc(), MacroRegime.id.desc()))
-    hist = rows(db.scalars(select(MacroRegime).order_by(MacroRegime.as_of.desc()).limit(30)))
+    # the regime is re-saved after every recalculation; list only the changes, each dated when it began
+    recent = list(db.scalars(select(MacroRegime).order_by(MacroRegime.as_of.desc(), MacroRegime.id.desc()).limit(2000)))
+    runs: list[list] = []
+    for r in recent:
+        if runs and (runs[-1][0].primary, runs[-1][0].secondary) == (r.primary, r.secondary):
+            runs[-1].append(r)
+        else:
+            runs.append([r])
+    hist = []
+    for run in runs[:40]:
+        start = run[-1]  # oldest entry of the run = when this regime began
+        hist.append(row(start) | {"started_at": start.as_of, "ended_at": None, "readings": len(run)})
+    for newer, older in zip(hist, hist[1:]):
+        older["ended_at"] = newer["started_at"]
     return {"current": row(cur), "history": hist}
+
+
+@router.get("/macro/heatmap")
+def macro_heatmap(currency: str = "USD", db: Session = Depends(get_db)):
+    """Economic heatmap for one currency: latest releases with surprise, currency and stocks impact."""
+    from app.services import heatmap as hm
+
+    try:
+        return hm.heatmap(db, currency)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
 
 
 @router.get("/market-reaction")

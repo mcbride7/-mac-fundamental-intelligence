@@ -21,7 +21,7 @@ class Warning_:
         return {"code": self.code, "message": self.message, "severity": self.severity}
 
 
-PERIOD_RE = re.compile(r"^(20\d{2})(-(0[1-9]|1[0-2])|Q[1-4])?$")
+PERIOD_RE = re.compile(r"^(20\d{2})(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?|Q[1-4])?$")  # weekly: week-ending date
 
 
 def validate_release(
