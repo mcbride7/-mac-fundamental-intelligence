@@ -185,6 +185,7 @@ def risk_sentiment(days: int = 120, db: Session = Depends(get_db)):
         day = (r.data_date or r.as_of.date().isoformat())
         daily[day] = {"date": day, "score": r.score, "label": r.label}  # last reading of each day wins
     from app.analytics.risk import daily_evaluation
+    from app.services.daily_moves import daily_moves
     from app.services import heatmap as hm
 
     scores = {}
@@ -194,29 +195,31 @@ def risk_sentiment(days: int = 120, db: Session = Depends(get_db)):
     return {"current": row(cur) | {"implication": FX_IMPLICATION.get(cur.label, "")} if cur else None,
             "history": list(daily.values()), "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF},
             "weights": WEIGHTS, "tiles": _risk_tiles(db),
-            "evaluation": daily_evaluation(cur.label if cur else "No data", scores)}
+            "evaluation": daily_evaluation(cur.label if cur else "No data", scores) | {"moves": daily_moves(db)}}
 
 
 TILES = [("BTCUSD", "BTC/USD"), ("EURUSD", "EUR/USD"), ("SPX", "SPX500"), ("XAUUSD", "GOLD"), ("USDJPY", "USD/JPY")]
 
 
 def _risk_tiles(db: Session) -> list[dict]:
-    """Price boxes for the risk panel. The S&P 500 falls back to FRED's daily close when Twelve Data has no price."""
-    from app.models import IndicatorObservation
+    """Price boxes for the risk panel (Twelve Data, falling back to FRED's daily closes), plus VIX and the
+    US 10-year yield."""
+    from app.services.daily_moves import _last_two, _pct, symbol_changes, ten_year
 
-    over = {m["symbol"]: m for m in market_engine.markets_overview(db)}
+    sym = symbol_changes(db)
     out = []
-    for sym, label in TILES:
-        m = over.get(sym) or {}
-        price, chg, src = m.get("price"), m.get("change_1d_pct"), m.get("source")
-        if price is None and sym == "SPX":
-            last2 = list(db.scalars(select(IndicatorObservation).where(IndicatorObservation.series == "RISK:spx")
-                                    .order_by(IndicatorObservation.obs_date.desc()).limit(2)))
-            if last2:
-                price, src = last2[0].value, "FRED (daily close)"
-                chg = (last2[0].value / last2[1].value - 1) * 100 if len(last2) == 2 and last2[1].value else None
-        if price is not None:
-            out.append({"symbol": sym, "label": label, "price": price, "change_1d_pct": chg, "source": src})
+    for s, label in TILES:
+        if s in sym:
+            out.append({"symbol": s, "label": label, "price": sym[s]["price"],
+                        "change_1d_pct": sym[s]["change_pct"], "source": sym[s]["source"]})
+    vix = _last_two(db, "vix")
+    if vix:
+        out.append({"symbol": "VIX", "label": "VIX", "price": vix[1], "change_1d_pct": _pct(vix),
+                    "source": "FRED (daily)"})
+    ty = ten_year(db)
+    if ty:
+        out.append({"symbol": "US10Y", "label": "US 10Y yield", "price": ty["yield"], "unit": "%",
+                    "change_bps": ty["change_bps"], "source": "FRED (daily)"})
     return out
 
 

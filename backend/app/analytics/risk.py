@@ -147,7 +147,7 @@ FX_IMPLICATION = {
 
 # Daily evaluation: who usually gains and loses in each mood (against the US dollar for currencies).
 RISK_ON_BULLISH = ["AUD", "NZD", "CAD", "ZAR", "MXN", "EUR", "GBP", "SPX500", "BTC"]
-RISK_ON_BEARISH = ["JPY", "CHF", "USD", "GOLD"]
+RISK_ON_BEARISH = ["JPY", "CHF", "USD", "GOLD", "VIX", "BONDS"]  # risk-on: fear gauge falls, bonds sell off
 
 
 def daily_evaluation(label: str, currency_scores: dict[str, int] | None = None) -> dict:

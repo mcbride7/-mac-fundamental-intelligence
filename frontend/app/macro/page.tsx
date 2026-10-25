@@ -155,29 +155,44 @@ function RiskDial({ score, on, off }: { score: number; on: number; off: number }
 }
 
 function Tile({ t }: { t: any }) {
-  const chg = t.change_1d_pct;
-  const dp = t.price >= 1000 ? 0 : t.price >= 100 ? 2 : 4;
+  const chg = t.change_bps ?? t.change_1d_pct;
+  const dp = t.unit === "%" ? 2 : t.symbol === "VIX" ? 2 : t.price >= 1000 ? 0 : t.price >= 100 ? 2 : 4;
   return (
-    <div className="min-w-[9.5rem] flex-1 rounded-lg border border-line bg-panel-2/60 px-4 py-3" title={t.source ? `Source: ${t.source}` : undefined}>
-      <div className="text-lg font-bold tracking-tight">{t.label}</div>
-      <div className="mt-1 grid grid-cols-2 gap-2 text-[0.7rem] text-muted"><span>Market price</span><span>Change (1 day)</span></div>
-      <div className="grid grid-cols-2 gap-2 text-lg tabular-nums">
-        <span>{t.price.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}</span>
+    <div className="min-w-0 rounded-lg border border-line bg-panel-2/60 px-3 py-3" title={t.source ? `Source: ${t.source}` : undefined}>
+      <div className="truncate text-base font-bold tracking-tight sm:text-lg">{t.label}</div>
+      <div className="mt-1 grid grid-cols-2 gap-2 text-[0.7rem] text-muted"><span>{t.unit === "%" ? "Yield" : "Price"}</span><span>1-day</span></div>
+      <div className="grid grid-cols-2 gap-2 text-base tabular-nums sm:text-lg">
+        <span>{t.price.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}{t.unit || ""}</span>
         <span className={chg == null ? "text-muted" : chg < 0 ? "text-[#ff7b7b]" : "text-[#9ccc65]"}>
-          {chg == null ? "—" : `${chg > 0 ? "+" : ""}${chg.toFixed(2)}%`}</span>
+          {chg == null ? "—" : t.change_bps != null ? `${chg > 0 ? "+" : ""}${chg.toFixed(0)} bp` : `${chg > 0 ? "+" : ""}${chg.toFixed(2)}%`}</span>
       </div>
     </div>
   );
 }
 
-function EvalBox({ title, items, colour }: { title: string; items: string[]; colour: string }) {
+const DISPLAY: Record<string, string> = { BONDS: "US BONDS" };
+
+function moveText(name: string, m: any): string | null {
+  if (!m) return null;
+  if (m.change_bps != null) return `10Y ${m.change_bps > 0 ? "+" : ""}${m.change_bps.toFixed(0)} bp`;
+  if (m.change_pct == null) return null;
+  return `${m.change_pct > 0 ? "+" : ""}${m.change_pct.toFixed(2)}%`;
+}
+
+function EvalBox({ title, items, colour, moves }: { title: string; items: string[]; colour: string; moves: Record<string, any> }) {
   return (
     <div className="flex min-w-0 flex-col">
       <div className="mb-1 text-center text-sm font-semibold">{title}</div>
-      <div className="flex min-h-[10rem] flex-1 flex-col items-center justify-center rounded px-3 py-4 text-center text-lg font-semibold leading-snug text-white"
+      <div className="flex min-h-[10rem] flex-1 flex-col items-center justify-center rounded px-2 py-4 text-center text-base font-semibold leading-snug text-white sm:text-lg"
         style={{ background: colour }}>
-        {items.length ? items.map((i, n) => <span key={i}>{i}{n < items.length - 1 ? "," : ""}</span>)
-          : <span className="text-sm font-normal opacity-80">None today</span>}
+        {items.length ? items.map((i, n) => {
+          const mv = moveText(i, moves[i]);
+          return (
+            <span key={i} className="block" title={moves[i]?.against ? `vs ${moves[i].against}` : undefined}>
+              <span className="whitespace-nowrap">{DISPLAY[i] || i}</span>{mv && " "}{mv && <span className="whitespace-nowrap text-sm font-medium opacity-90">({mv})</span>}{n < items.length - 1 ? "," : ""}
+            </span>
+          );
+        }) : <span className="text-sm font-normal opacity-80">None today</span>}
       </div>
     </div>
   );
@@ -192,7 +207,7 @@ function RiskSentiment() {
     <Panel title="Daily Risk ON / Risk OFF">
       <ErrorBox error={error} />
       {data?.tiles?.length > 0 && (
-        <div className="mb-6 flex flex-wrap gap-3">{data.tiles.map((t: any) => <Tile key={t.symbol} t={t} />)}</div>
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">{data.tiles.map((t: any) => <Tile key={t.symbol} t={t} />)}</div>
       )}
       {loading && !data ? <Loading /> : !c || c.score === null ? (
         <Empty href="/data-health" cta="Open Data health">No risk reading yet. It is worked out from daily FRED data (VIX, credit spreads, S&amp;P 500, FX).
@@ -209,10 +224,11 @@ function RiskSentiment() {
             <div className="min-w-0">
               <h3 className="mb-3 text-center text-2xl font-medium sm:text-3xl lg:mt-1">Daily Evaluation</h3>
               <div className="grid grid-cols-2 gap-1">
-                <EvalBox title="Bullish/D" items={ev?.bullish || []} colour={GREEN} />
-                <EvalBox title="Bearish/D" items={ev?.bearish || []} colour={RED} />
+                <EvalBox title="Bullish/D" items={ev?.bullish || []} colour={GREEN} moves={ev?.moves || {}} />
+                <EvalBox title="Bearish/D" items={ev?.bearish || []} colour={RED} moves={ev?.moves || {}} />
               </div>
-              {ev?.basis && <p className="mt-2 text-xs text-muted">{ev.basis} Currencies are against the US dollar; USD itself is against the others.</p>}
+              {ev?.basis && <p className="mt-2 text-xs text-muted">{ev.basis} Brackets show the 1-day change: currencies against the US dollar (USD against
+                the others), US bonds as the 10-year yield (yield up = bond prices down).</p>}
             </div>
           </div>
           {(c.notes || []).map((n: string) => (

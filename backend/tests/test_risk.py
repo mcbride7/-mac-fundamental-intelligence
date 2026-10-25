@@ -98,3 +98,28 @@ def test_daily_evaluation_lists():
     assert "JPY" in off["bullish"] and "AUD" in off["bearish"]
     mixed = rk.daily_evaluation("Neutral", {"USD": 2, "EUR": -1, "GBP": 0, "JPY": 1})
     assert mixed["bias"] == "Mixed" and mixed["bullish"] == ["USD", "JPY"] and mixed["bearish"] == ["EUR"]
+
+
+def test_daily_moves_and_tiles(client, db):
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import IndicatorObservation, MarketPrice, RiskSentiment
+
+    now = datetime.now(timezone.utc)
+    for sym, a, b in (("AUDUSD", 0.6500, 0.6526), ("USDJPY", 150.0, 151.5), ("EURUSD", 1.07, 1.07)):
+        db.add(MarketPrice(symbol=sym, ts=now - timedelta(days=1), price=a, asset_class="fx", source="twelvedata"))
+        db.add(MarketPrice(symbol=sym, ts=now, price=b, asset_class="fx", source="twelvedata"))
+    d0 = date(2026, 10, 22)
+    for name, a, b in (("vix", 16.0, 14.4), ("us10y", 4.10, 4.15), ("spx", 6000, 6060)):
+        db.add(IndicatorObservation(series="RISK:" + name, obs_date=d0, value=a))
+        db.add(IndicatorObservation(series="RISK:" + name, obs_date=d0 + timedelta(days=1), value=b))
+    db.add(RiskSentiment(score=70, label="Risk-On", components=[], coverage=1.0, notes=[], missing=[]))
+    db.commit()
+    d = client.get("/api/macro/risk").json()
+    mv = d["evaluation"]["moves"]
+    assert abs(mv["AUD"]["change_pct"] - 0.4) < 0.01 and abs(mv["JPY"]["change_pct"] + 1.0) < 0.01
+    assert abs(mv["VIX"]["change_pct"] + 10) < 0.01 and mv["BONDS"]["change_bps"] == 5.0
+    assert abs(mv["SPX500"]["change_pct"] - 1.0) < 0.01 and "USD" in mv
+    assert "VIX" in d["evaluation"]["bearish"] and "BONDS" in d["evaluation"]["bearish"]
+    labels = {t["label"] for t in d["tiles"]}
+    assert {"VIX", "US 10Y yield", "SPX500", "EUR/USD"} <= labels
