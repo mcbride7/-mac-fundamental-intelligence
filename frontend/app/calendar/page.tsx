@@ -52,7 +52,7 @@ function EditableCell({ eventId, field, value, digits, unit, strong, onSaved }: 
   if (!editing) {
     return (
       <button type="button" onClick={open} title="Click to edit"
-        className={`-mx-1 rounded px-1 text-left hover:bg-panel-2 hover:outline hover:outline-1 hover:outline-line ${strong ? "font-medium" : ""}`}>
+        className={`-mx-1 rounded px-1 text-left underline decoration-muted decoration-dotted decoration-2 underline-offset-4 hover:bg-panel-2 hover:outline hover:outline-1 hover:outline-line ${strong ? "font-medium" : ""}`}>
         {value === null || value === undefined ? <span className="text-muted">—</span> : num(value, digits, unit)}
       </button>
     );

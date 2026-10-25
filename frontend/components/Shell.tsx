@@ -56,6 +56,9 @@ function DataStatus() {
   );
 }
 
+// filled in at build time by Next.js; the typeof check keeps the page working if it isn't
+const BUILD = ((typeof process !== "undefined" && process.env.NEXT_PUBLIC_BUILD) || "dev").slice(0, 7);
+
 export default function Shell({ children }: { children: ReactNode }) {
   const path = usePathname() || "/";
   const [open, setOpen] = useState(false);
@@ -80,7 +83,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         </nav>
         {/* which code this page was built from, so you can check a Railway deploy took effect */}
         <p className="px-5 pb-5 text-xs text-muted" title="Website version (the GitHub commit it was built from)">
-          Version {(process.env.NEXT_PUBLIC_BUILD || "dev").slice(0, 7)}
+          Version {BUILD}
         </p>
       </aside>
       <div className="min-w-0">

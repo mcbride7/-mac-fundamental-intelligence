@@ -52,7 +52,7 @@ export default function QuickEdit({ display, initial, kind = "number", period, l
   if (!editing) {
     return (
       <button type="button" onClick={open} title={`Click to edit ${label.toLowerCase()}`}
-        className="-mx-1 rounded px-1 text-left decoration-line decoration-dotted underline-offset-4 hover:bg-panel-2 hover:underline hover:outline hover:outline-1 hover:outline-line">
+        className="-mx-1 rounded px-1 text-left underline decoration-muted decoration-dotted decoration-2 underline-offset-4 hover:bg-panel-2 hover:outline hover:outline-1 hover:outline-line">
         {display}
       </button>
     );
