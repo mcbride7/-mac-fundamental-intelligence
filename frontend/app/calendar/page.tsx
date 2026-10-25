@@ -15,9 +15,11 @@ const IMPORTANCE: Record<string, { mark: string; label: string; cls: string }> =
 
 // A number you can click to change. Enter saves, Esc cancels. An actual goes through the same
 // checks as Data input; if it looks unusual the API asks for a reason before saving it.
-function EditableCell({ eventId, field, value, digits, unit, strong, onSaved }: {
-  eventId: number; field: "actual" | "consensus" | "previous"; value: number | null; digits: number; unit: string;
-  strong?: boolean; onSaved: () => void;
+const FIELD_LABEL: Record<string, string> = { consensus: "forecast", cb_projection: "CB projection" };
+
+function EditableCell({ eventId, field, value, digits, unit, strong, onSaved, signedValue, title }: {
+  eventId: number; field: "actual" | "consensus" | "previous" | "cb_projection" | "surprise"; value: number | null;
+  digits: number; unit: string; strong?: boolean; onSaved: () => void; signedValue?: boolean; title?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -51,16 +53,17 @@ function EditableCell({ eventId, field, value, digits, unit, strong, onSaved }: 
 
   if (!editing) {
     return (
-      <button type="button" onClick={open} title="Click to edit"
+      <button type="button" onClick={open} title={title ? `${title}. Click to edit` : "Click to edit"}
         className={`-mx-1 rounded px-1 text-left underline decoration-muted decoration-dotted decoration-2 underline-offset-4 hover:bg-panel-2 hover:outline hover:outline-1 hover:outline-line ${strong ? "font-medium" : ""}`}>
-        {value === null || value === undefined ? <span className="text-muted">—</span> : num(value, digits, unit)}
+        {value === null || value === undefined ? <span className="text-muted">—</span>
+          : signedValue ? signed(value, digits) : num(value, digits, unit)}
       </button>
     );
   }
   return (
     <div className="min-w-[7rem]">
       <input ref={input} value={text} onChange={(e) => setText(e.target.value)} disabled={busy} inputMode="decimal"
-        aria-label={`New ${field === "consensus" ? "forecast" : field}`}
+        aria-label={`New ${FIELD_LABEL[field] || field}`}
         onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
         className="w-24 rounded border border-verify bg-ink px-2 py-1 text-sm text-text" />
       {needReason && (
@@ -97,7 +100,7 @@ export default function Calendar() {
   );
   return (
     <>
-      <PageTitle title="Economic calendar" subtitle="Market forecast, central-bank projection and actual side by side. Click any previous, forecast or actual number to change it; the analysis re-runs when you save." />
+      <PageTitle title="Economic calendar" subtitle="Market forecast, central-bank projection and actual side by side. Click any previous, forecast, CB projection, actual or surprise number to change it; the analysis re-runs when you save." />
       <div className="mb-4 flex flex-wrap gap-4">
         {sel("currency", [["", "All"], ...["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "ZAR", "MXN", "CNY"].map((c) => [c, c] as [string, string])])}
         {sel("importance", [["", "All"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]])}
@@ -125,9 +128,20 @@ export default function Calendar() {
                     <td className={imp.cls} title={`${imp.label} importance`}><span aria-hidden>{imp.mark}</span><span className="sr-only">{imp.label}</span></td>
                     <td><EditableCell eventId={e.event_id} field="previous" value={e.previous} digits={2} unit={u} onSaved={reload} /></td>
                     <td><EditableCell eventId={e.event_id} field="consensus" value={e.market_forecast} digits={2} unit={u} onSaved={reload} /></td>
-                    <td>{num(e.central_bank_projection, 1, u)}</td>
+                    <td>{e.projection_editable
+                      ? <EditableCell eventId={e.event_id} field="cb_projection" value={e.central_bank_projection} digits={1} unit={u} onSaved={reload}
+                          title="Saved as a new projection round for the central bank" />
+                      : <span title="No central bank publishes a projection for this indicator">{num(e.central_bank_projection, 1, u)}</span>}</td>
                     <td><EditableCell eventId={e.event_id} field="actual" value={e.actual} digits={2} unit={u} strong onSaved={reload} /></td>
-                    <td className={toneClass(e.surprise_class)} title={e.surprise_class}>{signed(e.surprise, 2)}</td>
+                    <td className={toneClass(e.surprise_class)}>
+                      {e.actual != null
+                        ? <EditableCell eventId={e.event_id} field="surprise" value={e.surprise} digits={2} unit="" signedValue onSaved={reload}
+                            title={e.surprise_edited
+                              ? `Your figure (calculated: ${signed(e.surprise_calculated, 2)})${e.surprise_reason ? ` – ${e.surprise_reason}` : ""}. Clear the box to go back to actual minus forecast`
+                              : `${e.surprise_class || "Actual minus forecast"}`} />
+                        : <span className="text-muted">—</span>}
+                      {e.surprise_edited && <span className="ml-1 rounded border border-amber/60 px-1 text-[0.65rem] text-amber">edited</span>}
+                    </td>
                     <td>{e.needs_manual_input ? (
                       <Link href={`/data-input?indicator=${e.indicator}&period=${e.reference_period}`}
                         className="whitespace-nowrap rounded border border-hawk/70 px-2 py-0.5 text-xs text-hawk hover:bg-hawk/10">Provide data</Link>

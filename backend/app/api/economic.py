@@ -13,6 +13,7 @@ from app.core.verification import badge
 from app.db import utcnow
 from app.engines.release_engine import event_report
 from app.models import EconomicEvent, EconomicSurprise, ForecastError, Indicator
+from app.models.overrides import EventOverride
 from app.services import data_access as da
 from app.services import manual_service as ms
 
@@ -63,6 +64,9 @@ def calendar(start: date | None = None, end: date | None = None, country: str | 
             cb = da.cb_by_code(db, ind.central_bank_code)
             pr = da.projection_for(db, cb.id, ind.projection_variable, ev.reference_period[:4]) if cb else None
             proj = pr[0].value if pr else None
+        ov = db.scalar(select(EventOverride).where(EventOverride.event_id == ev.id, EventOverride.field == "surprise"))
+        cons = (rel.consensus if rel and rel.consensus is not None else ev.consensus)
+        calc = round(rel.actual - cons, 4) if rel and cons is not None else None
         sched = ev.scheduled_at if ev.scheduled_at.tzinfo else ev.scheduled_at.replace(tzinfo=timezone.utc)
         data_status = rel.verification_status if rel else ("MISSING" if sched <= now else "SCHEDULED")
         if status and data_status.lower() != status.lower():
@@ -74,6 +78,9 @@ def calendar(start: date | None = None, end: date | None = None, country: str | 
             "previous": ev.previous, "market_forecast": ev.consensus, "central_bank_projection": proj,
             "actual": rel.actual if rel else None, "unit": ind.unit, "release_id": rel.id if rel else None,
             "surprise": s.market_surprise if s else None, "surprise_class": s.classification if s else None,
+            "surprise_edited": ov is not None, "surprise_calculated": calc,
+            "surprise_reason": ov.reason if ov else None,
+            "projection_editable": bool(ind.projection_variable and ind.central_bank_code),
             "data_status": data_status,
             "badge": badge(rel.verification_status, rel.confirmation_basis) if rel else None,
             "needs_manual_input": data_status == "MISSING",
@@ -99,7 +106,7 @@ def add_event(body: EventIn, db: Session = Depends(get_db)):
 
 
 class QuickEditIn(BaseModel):
-    field: str  # actual | consensus | previous
+    field: str  # actual | consensus | previous | cb_projection | surprise
     value: float | None = None
     reason: str | None = None  # needed when the value looks unusual (e.g. a possible decimal slip)
 

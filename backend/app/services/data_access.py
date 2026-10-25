@@ -106,7 +106,7 @@ def projection_for(db: Session, cb_id: int, variable: str, target_period: str,
     if as_of is not None:
         d = as_of.date() if isinstance(as_of, datetime) else as_of
         q = q.where(ProjectionVintage.vintage_date <= d)
-    row = db.execute(q.order_by(ProjectionVintage.vintage_date.desc())).first()
+    row = db.execute(q.order_by(ProjectionVintage.vintage_date.desc(), ProjectionVintage.id.desc())).first()
     return (row[0], row[1]) if row else None
 
 

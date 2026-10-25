@@ -776,7 +776,7 @@ def delete_upload(db: Session, sub_id: int, user_id: int | None = None) -> dict:
 # ---------------------------------------------------------------------------
 # Quick edits from the economic calendar (click a number, type, Enter)
 
-QUICK_FIELDS = ("actual", "consensus", "previous")
+QUICK_FIELDS = ("actual", "consensus", "previous", "cb_projection", "surprise")
 
 
 def quick_edit_event(db: Session, event_id: int, field: str, value: float | None, user_id: int | None = None,
@@ -811,12 +811,93 @@ def quick_edit_event(db: Session, event_id: int, field: str, value: float | None
             jobs.append({"id": job.id, "status": job.status, "summary": job.summary})
         return {"event_id": ev.id, "field": field, "value": value, "recompute_jobs": jobs}
 
+    if field == "cb_projection":
+        return _edit_projection(db, ev, ind, value, user_id, reason)
+    if field == "surprise":
+        return _edit_surprise(db, ev, ind, value, user_id, reason)
+
     if value is None:
         raise ValueError("To remove an actual, delete the upload it came from on Data health")
     res = quick_release(db, ind, ev.reference_period, value, user_id, reason, "Calendar edit", "calendar_edit",
                         consensus=ev.consensus, previous=ev.previous,
                         release_date=ev.scheduled_at.date().isoformat() if ev.scheduled_at else None)
     return {"event_id": ev.id, "field": field, "value": value, **res}
+
+
+def _rerun_release(db: Session, ind: Indicator, period: str, **extra) -> list[dict]:
+    from app.services import recompute
+
+    rel = da.current_release(db, ind.id, period)
+    if rel is None:
+        return []
+    job = recompute.trigger(db, "release", rel.id, release_ids={rel.id}, indicator_ids={ind.id},
+                            currencies={ind.currency},
+                            central_banks={ind.central_bank_code} if ind.central_bank_code else set(), **extra)
+    return [{"id": job.id, "status": job.status, "summary": job.summary}]
+
+
+def _edit_projection(db: Session, ev: EconomicEvent, ind: Indicator, value: float | None, user_id: int | None,
+                     reason: str | None) -> dict:
+    """A central-bank projection typed on the calendar is stored as a NEW projection round (old rounds are
+    never overwritten). For a release already out it is dated the day before, so it counts as what the
+    bank expected at the time; for an upcoming one it is dated today."""
+    from datetime import timedelta
+
+    from app.models import CentralBankProjection, ProjectionVintage
+
+    if not (ind.projection_variable and ind.central_bank_code):
+        raise ValueError(f"No central bank publishes a projection for {ind.name}")
+    if value is None:
+        raise ValueError("Type the projection, like 2.4")
+    if not -1000 <= value <= 1_000_000:
+        raise ValueError("That projection is out of range")
+    cb = da.cb_by_code(db, ind.central_bank_code)
+    if cb is None:
+        raise LookupError(f"Unknown central bank {ind.central_bank_code}")
+    today = date.today()
+    when = ev.scheduled_at.date() if ev.scheduled_at else today
+    vdate = min(today, when - timedelta(days=1))
+    year = ev.reference_period[:4]
+    before = da.projection_for(db, cb.id, ind.projection_variable, year, when)
+    v = ProjectionVintage(central_bank_id=cb.id, vintage_date=vdate,
+                          label=f"Calendar edit: {ind.projection_variable.replace('_', ' ')} {year}",
+                          input_method="typed", verification_status="UNVERIFIED")
+    db.add(v)
+    db.flush()
+    db.add(CentralBankProjection(vintage_id=v.id, central_bank_id=cb.id, variable=ind.projection_variable,
+                                 target_period=year, value=value))
+    audit(db, "projection_vintage", v.id, "added from calendar", user_id, event_id=ev.id,
+          before=before[0].value if before else None, after=value, reason=reason)
+    db.commit()
+    from app.services import recompute
+
+    job = recompute.trigger(db, "projection_vintage", v.id, central_banks={cb.code}, currencies={cb.currency})
+    jobs = [{"id": job.id, "status": job.status, "summary": job.summary}] + _rerun_release(db, ind, ev.reference_period)
+    return {"event_id": ev.id, "field": "cb_projection", "value": value, "vintage_id": v.id, "recompute_jobs": jobs}
+
+
+def _edit_surprise(db: Session, ev: EconomicEvent, ind: Indicator, value: float | None, user_id: int | None,
+                   reason: str | None) -> dict:
+    """Type your own surprise over the calculated one (actual - forecast). Empty clears it."""
+    from app.models.overrides import EventOverride
+
+    if da.current_release(db, ind.id, ev.reference_period) is None:
+        raise ValueError("Add the actual first: the surprise is measured against it")
+    ov = db.scalar(select(EventOverride).where(EventOverride.event_id == ev.id, EventOverride.field == "surprise"))
+    before = ov.value if ov else None
+    if value is None:
+        if ov is not None:
+            db.delete(ov)
+    else:
+        if ov is None:
+            ov = EventOverride(event_id=ev.id, field="surprise", value=value)
+            db.add(ov)
+        ov.value, ov.reason, ov.user_id = value, reason, user_id
+    audit(db, "economic_event", ev.id, "edited surprise" if value is not None else "cleared surprise", user_id,
+          before=before, after=value, reason=reason)
+    db.commit()
+    return {"event_id": ev.id, "field": "surprise", "value": value,
+            "recompute_jobs": _rerun_release(db, ind, ev.reference_period)}
 
 
 def quick_release(db: Session, ind: Indicator, period: str, value: float, user_id: int | None, reason: str | None,

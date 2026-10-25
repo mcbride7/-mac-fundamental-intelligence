@@ -50,3 +50,51 @@ def test_bad_field_rejected(client, db):
     ev, _ = _event(db)
     assert client.patch(f"/api/economic-events/{ev.id}", json={"field": "importance", "value": 1}).status_code == 400
     assert client.patch("/api/economic-events/999999", json={"field": "actual", "value": 1}).status_code == 404
+
+
+def _row(client, ev_id):
+    rows = client.get("/api/economic-calendar?start=2026-10-01&end=2026-10-31").json()
+    return next(r for r in rows if r["event_id"] == ev_id)
+
+
+def test_edit_cb_projection_adds_a_vintage(client, db):
+    from app.models import ProjectionVintage
+
+    ev, ind = _event(db, code="US_PCE_YOY", consensus=2.8, previous=2.7)
+    assert ind.projection_variable and ind.central_bank_code
+    assert client.patch(f"/api/economic-events/{ev.id}", json={"field": "actual", "value": 2.9}).status_code == 200
+    r = client.patch(f"/api/economic-events/{ev.id}", json={"field": "cb_projection", "value": 2.6})
+    assert r.status_code == 200, r.text
+    row = _row(client, ev.id)
+    assert row["central_bank_projection"] == 2.6 and row["projection_editable"]
+    v = db.get(ProjectionVintage, r.json()["vintage_id"])
+    assert str(v.vintage_date) == "2026-10-13" and v.input_method == "typed"  # day before the release
+    # a second edit is a new round; the newest one counts
+    assert client.patch(f"/api/economic-events/{ev.id}", json={"field": "cb_projection", "value": 2.7}).status_code == 200
+    assert _row(client, ev.id)["central_bank_projection"] == 2.7
+    assert client.patch(f"/api/economic-events/{ev.id}", json={"field": "cb_projection", "value": None}).status_code == 400
+
+
+def test_edit_surprise_override_and_clear(client, db):
+    ev, _ = _event(db)
+    r = client.patch(f"/api/economic-events/{ev.id}", json={"field": "surprise", "value": 0.3})
+    assert r.status_code == 400  # no actual yet
+    assert client.patch(f"/api/economic-events/{ev.id}", json={"field": "actual", "value": 3.1}).status_code == 200
+    row = _row(client, ev.id)
+    assert abs(row["surprise"] - 0.1) < 1e-9 and not row["surprise_edited"]
+    r = client.patch(f"/api/economic-events/{ev.id}", json={"field": "surprise", "value": 0.4, "reason": "vs my forecast"})
+    assert r.status_code == 200, r.text
+    row = _row(client, ev.id)
+    assert abs(row["surprise"] - 0.4) < 1e-9 and row["surprise_edited"] and abs(row["surprise_calculated"] - 0.1) < 1e-9
+    assert row["surprise_reason"] == "vs my forecast"
+    # clearing goes back to actual - forecast
+    assert client.patch(f"/api/economic-events/{ev.id}", json={"field": "surprise", "value": None}).status_code == 200
+    row = _row(client, ev.id)
+    assert abs(row["surprise"] - 0.1) < 1e-9 and not row["surprise_edited"]
+
+
+def test_projection_not_offered_where_no_bank_projects(client, db):
+    ev, _ = _event(db)  # US CPI: the Fed projects PCE, not CPI
+    r = client.patch(f"/api/economic-events/{ev.id}", json={"field": "cb_projection", "value": 2.6})
+    assert r.status_code == 400 and "No central bank" in r.json()["detail"]
+    assert _row(client, ev.id)["projection_editable"] is False

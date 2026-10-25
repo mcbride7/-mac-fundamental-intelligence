@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.analytics import surprise as sx
 from app.core.verification import badge
+from app.models.overrides import EventOverride
 from app.models import (
     EconomicEvent,
     EconomicRelease,
@@ -41,6 +42,13 @@ def compute_surprise(db: Session, rel: EconomicRelease) -> EconomicSurprise | No
         return None
     ev = db.get(EconomicEvent, rel.event_id) if rel.event_id else None
     consensus = rel.consensus if rel.consensus is not None else (ev.consensus if ev else None)
+    if ev is None:
+        ev = da.event_for(db, ind.id, rel.reference_period)
+    override = db.scalar(select(EventOverride).where(EventOverride.event_id == ev.id,
+                                                     EventOverride.field == "surprise")) if ev else None
+    if override is not None:
+        # a surprise typed on the calendar: score it as if the forecast were actual - surprise
+        consensus = rel.actual - override.value
     projection = None
     if ind.projection_variable and ind.central_bank_code:
         cb = da.cb_by_code(db, ind.central_bank_code)
