@@ -184,9 +184,40 @@ def risk_sentiment(days: int = 120, db: Session = Depends(get_db)):
                         .order_by(RiskSentiment.as_of)):
         day = (r.data_date or r.as_of.date().isoformat())
         daily[day] = {"date": day, "score": r.score, "label": r.label}  # last reading of each day wins
+    from app.analytics.risk import daily_evaluation
+    from app.services import heatmap as hm
+
+    scores = {}
+    if cur is not None and cur.label == "Neutral":
+        scores = {c: sum(1 if r["currency_impact"] == "Bullish" else -1 if r["currency_impact"] == "Bearish" else 0
+                         for r in hm.rows_for(db, c)) for c in hm.CURRENCIES}
     return {"current": row(cur) | {"implication": FX_IMPLICATION.get(cur.label, "")} if cur else None,
             "history": list(daily.values()), "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF},
-            "weights": WEIGHTS}
+            "weights": WEIGHTS, "tiles": _risk_tiles(db),
+            "evaluation": daily_evaluation(cur.label if cur else "No data", scores)}
+
+
+TILES = [("BTCUSD", "BTC/USD"), ("EURUSD", "EUR/USD"), ("SPX", "SPX500"), ("XAUUSD", "GOLD"), ("USDJPY", "USD/JPY")]
+
+
+def _risk_tiles(db: Session) -> list[dict]:
+    """Price boxes for the risk panel. The S&P 500 falls back to FRED's daily close when Twelve Data has no price."""
+    from app.models import IndicatorObservation
+
+    over = {m["symbol"]: m for m in market_engine.markets_overview(db)}
+    out = []
+    for sym, label in TILES:
+        m = over.get(sym) or {}
+        price, chg, src = m.get("price"), m.get("change_1d_pct"), m.get("source")
+        if price is None and sym == "SPX":
+            last2 = list(db.scalars(select(IndicatorObservation).where(IndicatorObservation.series == "RISK:spx")
+                                    .order_by(IndicatorObservation.obs_date.desc()).limit(2)))
+            if last2:
+                price, src = last2[0].value, "FRED (daily close)"
+                chg = (last2[0].value / last2[1].value - 1) * 100 if len(last2) == 2 and last2[1].value else None
+        if price is not None:
+            out.append({"symbol": sym, "label": label, "price": price, "change_1d_pct": chg, "source": src})
+    return out
 
 
 @router.get("/macro/heatmap")

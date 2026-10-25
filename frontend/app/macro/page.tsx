@@ -94,40 +94,114 @@ function RiskChart({ hist, on, off }: { hist: { date: string; score: number }[];
     <figure>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="none" role="img"
         aria-label={`Risk sentiment over the last ${hist.length} days, latest ${num(hist[hist.length - 1].score, 0)}`}>
-        <rect x="0" y="0" width={W} height={y(on)} fill="#3d4fd6" opacity="0.12" />
-        <rect x="0" y={y(off)} width={W} height={H - y(off)} fill="#e45d5d" opacity="0.12" />
+        <rect x="0" y="0" width={W} height={y(on)} fill="#43a047" opacity="0.14" />
+        <rect x="0" y={y(off)} width={W} height={H - y(off)} fill="#e53935" opacity="0.14" />
         <line x1="0" x2={W} y1={y(50)} y2={y(50)} stroke="currentColor" opacity="0.2" strokeDasharray="4 4" />
         <path d={path} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
       <figcaption className="mt-1 flex justify-between text-xs text-muted"><span>{shortDate(hist[0].date)}</span>
-        <span>blue band = risk-on (≥{on}), red band = risk-off (≤{off})</span><span>{shortDate(hist[hist.length - 1].date)}</span></figcaption>
+        <span>green band = risk-on (≥{on}), red band = risk-off (≤{off})</span><span>{shortDate(hist[hist.length - 1].date)}</span></figcaption>
     </figure>
+  );
+}
+
+const GREEN = "#43a047", RED = "#e53935", MIXED = "#9aa5b5";
+
+/** Round dial like a car gauge: Risk Off (red, left), Mixed (top), Risk On (green, right). */
+function RiskDial({ score, on, off }: { score: number; on: number; off: number }) {
+  // the dial sweeps 240 degrees, from bottom-left (0) over the top to bottom-right (100)
+  const ang = (v: number) => ((210 - (v / 100) * 240) * Math.PI) / 180;
+  const pt = (v: number, r: number) => [100 + r * Math.cos(ang(v)), 100 - r * Math.sin(ang(v))];
+  const arc = (a: number, b: number, r: number) => {
+    const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r);
+    return `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${(b - a) * 2.4 > 180 ? 1 : 0} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+  };
+  const [nx, ny] = pt(score, 62);
+  const ticks = [0, 20, 40, 50, 60, 80, 100];
+  return (
+    <svg viewBox="0 0 200 200" className="w-56 max-w-full" role="img" aria-label={`Risk dial at ${Math.round(score)} out of 100`}>
+      <circle cx="100" cy="100" r="92" fill="#eef1f5" stroke="#c9d0da" strokeWidth="5" />
+      <path d={arc(0, off, 74)} fill="none" stroke={RED} strokeWidth="16" />
+      <path d={arc(off, on, 74)} fill="none" stroke={MIXED} strokeWidth="6" opacity="0.6" />
+      <path d={arc(on, 100, 74)} fill="none" stroke={GREEN} strokeWidth="16" />
+      {ticks.map((t) => { const [x1, y1] = pt(t, 86), [x2, y2] = pt(t, 80); return <line key={t} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#5b6573" strokeWidth="2" />; })}
+      <text x={pt(15, 50)[0]} y={pt(15, 50)[1]} fontSize="11" fill="#5b6573" textAnchor="middle">R.Off</text>
+      <text x="100" y="40" fontSize="11" fill="#5b6573" textAnchor="middle">Mixed</text>
+      <text x={pt(85, 50)[0]} y={pt(85, 50)[1]} fontSize="11" fill="#5b6573" textAnchor="middle">R.On</text>
+      <line x1="100" y1="100" x2={nx} y2={ny} stroke="#e8602c" strokeWidth="3.5" strokeLinecap="round" />
+      <circle cx="100" cy="100" r="11" fill="#2f80ed" />
+      <text x="100" y="160" fontSize="24" fontWeight="600" fill="#2b3340" textAnchor="middle">{Math.round(score)}</text>
+    </svg>
+  );
+}
+
+function Tile({ t }: { t: any }) {
+  const chg = t.change_1d_pct;
+  const dp = t.price >= 1000 ? 0 : t.price >= 100 ? 2 : 4;
+  return (
+    <div className="min-w-[9.5rem] flex-1 rounded-lg border border-line bg-panel-2/60 px-4 py-3" title={t.source ? `Source: ${t.source}` : undefined}>
+      <div className="text-lg font-bold tracking-tight">{t.label}</div>
+      <div className="mt-1 grid grid-cols-2 gap-2 text-[0.7rem] text-muted"><span>Market price</span><span>Change (1 day)</span></div>
+      <div className="grid grid-cols-2 gap-2 text-lg tabular-nums">
+        <span>{t.price.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}</span>
+        <span className={chg == null ? "text-muted" : chg < 0 ? "text-[#ff7b7b]" : "text-[#9ccc65]"}>
+          {chg == null ? "—" : `${chg > 0 ? "+" : ""}${chg.toFixed(2)}%`}</span>
+      </div>
+    </div>
+  );
+}
+
+function EvalBox({ title, items, colour }: { title: string; items: string[]; colour: string }) {
+  return (
+    <div className="flex min-w-0 flex-col">
+      <div className="mb-1 text-center text-sm font-semibold">{title}</div>
+      <div className="flex min-h-[10rem] flex-1 flex-col items-center justify-center rounded px-3 py-4 text-center text-lg font-semibold leading-snug text-white"
+        style={{ background: colour }}>
+        {items.length ? items.map((i, n) => <span key={i}>{i}{n < items.length - 1 ? "," : ""}</span>)
+          : <span className="text-sm font-normal opacity-80">None today</span>}
+      </div>
+    </div>
   );
 }
 
 function RiskSentiment() {
   const { data, error, loading } = useApi<any>("/api/macro/risk");
   const c = data?.current;
-  const tone = c?.label === "Risk-On" ? "text-[#7d8cff]" : c?.label === "Risk-Off" ? "text-[#ff7b7b]" : "text-muted";
+  const ev = data?.evaluation;
+  const biasColour = c?.label === "Risk-On" ? "text-[#9ccc65]" : c?.label === "Risk-Off" ? "text-[#ff7b7b]" : "text-muted";
   return (
-    <Panel title="Risk sentiment">
+    <Panel title="Daily Risk ON / Risk OFF">
       <ErrorBox error={error} />
+      {data?.tiles?.length > 0 && (
+        <div className="mb-6 flex flex-wrap gap-3">{data.tiles.map((t: any) => <Tile key={t.symbol} t={t} />)}</div>
+      )}
       {loading && !data ? <Loading /> : !c || c.score === null ? (
         <Empty href="/data-health" cta="Open Data health">No risk reading yet. It is worked out from daily FRED data (VIX, credit spreads, S&amp;P 500, FX).
           On Data health, press Run now on &ldquo;Risk sentiment market series&rdquo;, or wait for the next automatic run.</Empty>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[14rem_1fr]">
-          <div className="flex flex-col items-center text-center">
-            <Gauge pct={c.score} suffix="/100" label="0 = extreme fear, 100 = extreme confidence" />
-            <p className={`mt-2 font-serif text-2xl ${tone}`}>{c.label}</p>
-            <p className="mt-1 text-xs text-muted">Market data up to {shortDate(c.data_date)}. {Math.round(c.coverage * 100)}% of signals available.</p>
+        <>
+          <div className="grid gap-6 lg:grid-cols-[22rem_1fr]">
+            <div className="flex flex-col items-center">
+              <h3 className="mb-2 self-start text-2xl font-medium sm:text-3xl">Daily Bias: <span className={biasColour}>{ev?.bias}</span></h3>
+              <RiskDial score={c.score} on={data.thresholds.risk_on} off={data.thresholds.risk_off} />
+              <p className="mt-1 text-center text-xs text-muted">Score out of 100. Market data up to {shortDate(c.data_date)};
+                {" "}{Math.round(c.coverage * 100)}% of signals available.</p>
+            </div>
+            <div className="min-w-0">
+              <h3 className="mb-3 text-center text-2xl font-medium sm:text-3xl lg:mt-1">Daily Evaluation</h3>
+              <div className="grid grid-cols-2 gap-1">
+                <EvalBox title="Bullish/D" items={ev?.bullish || []} colour={GREEN} />
+                <EvalBox title="Bearish/D" items={ev?.bearish || []} colour={RED} />
+              </div>
+              {ev?.basis && <p className="mt-2 text-xs text-muted">{ev.basis} Currencies are against the US dollar; USD itself is against the others.</p>}
+            </div>
           </div>
-          <div className="min-w-0 space-y-4">
-            {c.implication && <p className="note text-sm">{c.implication}</p>}
-            {(c.notes || []).map((n: string) => (
-              <p key={n} className="rounded border border-amber/50 bg-amber/10 px-3 py-2 text-sm text-amber">{n}</p>
-            ))}
-            <ul className="space-y-3">
+          {(c.notes || []).map((n: string) => (
+            <p key={n} className="mt-4 rounded border border-amber/50 bg-amber/10 px-3 py-2 text-sm text-amber">{n}</p>
+          ))}
+          <details className="mt-5 rounded border border-line p-3">
+            <summary className="cursor-pointer text-sm font-medium">Why: the 8 signals behind the score, and its history</summary>
+            <ul className="mt-4 space-y-3">
               {c.components.map((k: any) => (
                 <li key={k.key} className="text-sm" title={k.reading}>
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
@@ -136,18 +210,18 @@ function RiskSentiment() {
                   <div className="mt-1 flex items-center gap-3">
                     <span className="relative h-2.5 flex-1 rounded bg-panel-2" aria-hidden>
                       <span className="absolute inset-y-0 left-1/2 w-px bg-line" />
-                      <span className={`absolute inset-y-0 rounded ${k.score >= 0 ? "bg-[#3d4fd6]" : "bg-[#e45d5d]"}`}
-                        style={k.score >= 0 ? { left: "50%", width: `${k.score / 2}%` } : { right: "50%", width: `${-k.score / 2}%` }} />
+                      <span className="absolute inset-y-0 rounded" style={{ background: k.score >= 0 ? GREEN : RED,
+                        ...(k.score >= 0 ? { left: "50%", width: `${k.score / 2}%` } : { right: "50%", width: `${-k.score / 2}%` }) }} />
                     </span>
-                    <span className={`w-10 text-right tabular-nums ${k.score >= 0 ? "text-[#7d8cff]" : "text-[#ff7b7b]"}`}>{k.score > 0 ? "+" : ""}{num(k.score, 0)}</span>
+                    <span className={`w-10 text-right tabular-nums ${k.score >= 0 ? "text-[#9ccc65]" : "text-[#ff7b7b]"}`}>{k.score > 0 ? "+" : ""}{num(k.score, 0)}</span>
                   </div>
                 </li>
               ))}
             </ul>
-            {c.missing?.length > 0 && <p className="text-xs text-muted">Not enough data yet: {c.missing.join(", ")}.</p>}
-            <RiskChart hist={data.history} on={data.thresholds.risk_on} off={data.thresholds.risk_off} />
-          </div>
-        </div>
+            {c.missing?.length > 0 && <p className="mt-3 text-xs text-muted">Not enough data yet: {c.missing.join(", ")}.</p>}
+            <div className="mt-4"><RiskChart hist={data.history} on={data.thresholds.risk_on} off={data.thresholds.risk_off} /></div>
+          </details>
+        </>
       )}
     </Panel>
   );

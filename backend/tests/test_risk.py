@@ -89,3 +89,12 @@ def test_job_stores_reading_and_alerts_on_flip(client, db, monkeypatch):
     assert d["current"]["label"] == "Risk-Off" and len(d["current"]["components"]) >= 7 and d["history"]
     reg = client.get("/api/macro/regime").json()["current"]
     assert reg["signals"].get("risk") == "Risk-Off"
+
+
+def test_daily_evaluation_lists():
+    on = rk.daily_evaluation("Risk-On")
+    assert on["bias"] == "Risk On" and "AUD" in on["bullish"] and "JPY" in on["bearish"]
+    off = rk.daily_evaluation("Risk-Off")
+    assert "JPY" in off["bullish"] and "AUD" in off["bearish"]
+    mixed = rk.daily_evaluation("Neutral", {"USD": 2, "EUR": -1, "GBP": 0, "JPY": 1})
+    assert mixed["bias"] == "Mixed" and mixed["bullish"] == ["USD", "JPY"] and mixed["bearish"] == ["EUR"]

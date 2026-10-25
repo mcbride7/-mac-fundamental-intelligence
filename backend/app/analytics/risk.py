@@ -143,3 +143,27 @@ FX_IMPLICATION = {
     "Neutral": "No strong risk mood: currencies are likely to follow their own data and central banks.",
     "No data": "",
 }
+
+
+# Daily evaluation: who usually gains and loses in each mood (against the US dollar for currencies).
+RISK_ON_BULLISH = ["AUD", "NZD", "CAD", "ZAR", "MXN", "EUR", "GBP", "SPX500", "BTC"]
+RISK_ON_BEARISH = ["JPY", "CHF", "USD", "GOLD"]
+
+
+def daily_evaluation(label: str, currency_scores: dict[str, int] | None = None) -> dict:
+    """Bullish / bearish lists for the day. In a mixed (neutral) mood there is no risk tilt, so the lists
+    come from each currency's economic-data score instead."""
+    if label == "Risk-On":
+        return {"bias": "Risk On", "bullish": RISK_ON_BULLISH, "bearish": RISK_ON_BEARISH,
+                "basis": "Risk-on mood: higher-yielding and growth-linked assets tend to gain; safe havens lose."}
+    if label == "Risk-Off":
+        return {"bias": "Risk Off", "bullish": RISK_ON_BEARISH, "bearish": RISK_ON_BULLISH,
+                "basis": "Risk-off mood: safe havens tend to gain; higher-yielding and growth-linked assets lose."}
+    if label == "Neutral":
+        sc = currency_scores or {}
+        return {"bias": "Mixed",
+                "bullish": [c for c, v in sorted(sc.items(), key=lambda x: -x[1]) if v > 0],
+                "bearish": [c for c, v in sorted(sc.items(), key=lambda x: x[1]) if v < 0],
+                "basis": "Mixed mood: no risk tilt, so currencies are listed by their economic-data score "
+                         "(Macro heatmap)."}
+    return {"bias": "No data", "bullish": [], "bearish": [], "basis": ""}
