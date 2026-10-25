@@ -29,6 +29,8 @@ celery_app.conf.beat_schedule = {
     "statcan-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=35, hour="*/6"),
                    "args": ["statcan"]},
     "abs-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=45, hour="*/6"), "args": ["abs"]},
+    "risk-sentiment-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=50, hour="*/6"),
+                          "args": ["risk"]},
     "forexfactory-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=20, hour="*/6"),
                         "args": ["forexfactory"]},
     "verify-pending-30m": {"task": "app.worker.verify_pending_task", "schedule": crontab(minute="*/30")},

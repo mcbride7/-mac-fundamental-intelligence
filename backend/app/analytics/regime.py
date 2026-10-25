@@ -15,6 +15,8 @@ class RegimeInputs:
     safe_haven_fx: float | None = None        # avg % move of JPY & CHF vs USD (positive = havens stronger)
     policy_score_change: float | None = None  # avg change in policy scores over ~3 months
     avg_policy_score: float | None = None
+    risk_label: str | None = None              # from the risk sentiment score: Risk-On | Risk-Off | Neutral
+    risk_score: float | None = None            # 0..100
 
 
 @dataclass
@@ -54,13 +56,20 @@ def evaluate(inp: RegimeInputs) -> RegimeResult:
         else:
             sig["growth"] = "Trend Growth"
     risk_votes = []
+    if inp.risk_label in ("Risk-On", "Risk-Off", "Neutral"):
+        avail += 1
+        sig["risk"] = inp.risk_label if inp.risk_label != "Neutral" else "Neutral risk"
+        if inp.risk_label != "Neutral":
+            why.append(f"Risk sentiment {inp.risk_label} ({inp.risk_score:.0f}/100 on VIX, credit spreads, "
+                       "stocks and FX)")
+    use_votes = "risk" not in sig  # older, simpler signal when no risk sentiment score exists yet
     if inp.equity_trend is not None:
         risk_votes.append(1 if inp.equity_trend > 1 else -1 if inp.equity_trend < -1 else 0)
     if inp.safe_haven_fx is not None:
         risk_votes.append(-1 if inp.safe_haven_fx > 0.75 else 1 if inp.safe_haven_fx < -0.75 else 0)
     if inp.gold_trend is not None:
         risk_votes.append(-1 if inp.gold_trend > 3 else 0)
-    if risk_votes:
+    if risk_votes and use_votes:
         avail += 1
         v = sum(risk_votes)
         if v >= 1:

@@ -48,6 +48,8 @@ SOURCES = [
     ("finnhub", "Finnhub economic calendar", "2", "api", "https://finnhub.io", None, None, 360, {}),
     ("forexfactory", "Forex Factory calendar (forecasts)", "2", "api", "https://www.forexfactory.com/calendar",
      None, None, 720, {}),
+    ("risk", "Risk sentiment market series (FRED daily: VIX, credit spreads, S&P 500, FX)", "1", "api",
+     "https://fred.stlouisfed.org", "US", None, 1440, {}),
     ("twelvedata", "Twelve Data market prices", "2", "api", "https://twelvedata.com", None, None, 15, {}),
     ("calendar_csv", "Calendar CSV import", "2", "csv", None, None, None, 10080, {}),
     ("manual", "User-supplied manual data", "M", "manual", None, None, None, 0, {}),

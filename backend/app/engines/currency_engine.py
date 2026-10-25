@@ -53,6 +53,11 @@ def regime_inputs(db: Session) -> rx.RegimeInputs:
             trend = 1.8 if ind.transform == "qoq_saar" else 0.4
             growth.append(max(-1, min(1, (rel.actual - trend) / (2 * trend))))
             neg.append(1 if rel.actual < 0 else 0)
+    from app.services.risk_sentiment import latest_reading
+
+    risk = latest_reading(db)
+    if risk is not None and risk.score is None:
+        risk = None
     eq = _pct(db, "SPX", 50)
     gold = _pct(db, "XAUUSD", 30)
     jpy, chf = _pct(db, "USDJPY", 30), _pct(db, "USDCHF", 30)
@@ -72,6 +77,7 @@ def regime_inputs(db: Session) -> rx.RegimeInputs:
         growth_signal=statistics.fmean(growth) if growth else None,
         negative_gdp_share=statistics.fmean(neg) if neg else None,
         equity_trend=eq, gold_trend=gold, safe_haven_fx=statistics.fmean(havens) if havens else None,
+        risk_label=risk.label if risk else None, risk_score=risk.score if risk else None,
         policy_score_change=statistics.fmean(changes) if changes else None)
 
 
@@ -104,8 +110,8 @@ def score_currency(db: Session, ccy: str, snaps: dict[str, fnd.Snapshot], regime
         unemployment_change_6m=s.unemployment_change_6m, y2=s.y2,
         y2_change_1m_bps=s.y2_change_1m_bps, avg_y2=statistics.fmean(y2s) if len(y2s) >= 3 else None,
         surprise_index=s.surprise_index,
-        risk_regime=("Risk-Off" if regime and regime.secondary == "RISK-OFF" else
-                     "Risk-On" if regime and regime.secondary == "RISK-ON" else None),
+        risk_regime=("Risk-Off" if regime and (regime.secondary or "").upper() == "RISK-OFF" else
+                     "Risk-On" if regime and (regime.secondary or "").upper() == "RISK-ON" else None),
         evidence_quality=s.evidence_quality)
     return cx.score(inp), s
 

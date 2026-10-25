@@ -168,6 +168,27 @@ def regime(db: Session = Depends(get_db)):
     return {"current": row(cur), "history": hist}
 
 
+@router.get("/macro/risk")
+def risk_sentiment(days: int = 120, db: Session = Depends(get_db)):
+    """Risk-on / risk-off score: latest reading with its signals, plus one reading per day for the chart."""
+    from datetime import timedelta
+
+    from app.analytics.risk import FX_IMPLICATION, RISK_OFF, RISK_ON, WEIGHTS
+    from app.db import utcnow
+    from app.models import RiskSentiment
+
+    cur = db.scalar(select(RiskSentiment).order_by(RiskSentiment.as_of.desc(), RiskSentiment.id.desc()))
+    since = utcnow() - timedelta(days=days)
+    daily: dict[str, dict] = {}
+    for r in db.scalars(select(RiskSentiment).where(RiskSentiment.as_of >= since, RiskSentiment.score.is_not(None))
+                        .order_by(RiskSentiment.as_of)):
+        day = (r.data_date or r.as_of.date().isoformat())
+        daily[day] = {"date": day, "score": r.score, "label": r.label}  # last reading of each day wins
+    return {"current": row(cur) | {"implication": FX_IMPLICATION.get(cur.label, "")} if cur else None,
+            "history": list(daily.values()), "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF},
+            "weights": WEIGHTS}
+
+
 @router.get("/macro/heatmap")
 def macro_heatmap(currency: str = "USD", db: Session = Depends(get_db)):
     """Economic heatmap for one currency: latest releases with surprise, currency and stocks impact."""

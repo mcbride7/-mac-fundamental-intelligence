@@ -30,7 +30,7 @@ function shortDate(d: string | null) {
 }
 
 /** Half-circle gauge: 0% (all bearish, left, red) to 100% (all bullish, right, blue). */
-function Gauge({ pct, label }: { pct: number | null; label: string }) {
+function Gauge({ pct, label, suffix = "%" }: { pct: number | null; label: string; suffix?: string }) {
   const p = pct === null ? 50 : Math.max(0, Math.min(100, pct));
   const a = Math.PI * (1 - p / 100);
   const x = 60 + 44 * Math.cos(a), y = 62 - 44 * Math.sin(a);
@@ -42,7 +42,7 @@ function Gauge({ pct, label }: { pct: number | null; label: string }) {
         <line x1="60" y1="62" x2={x} y2={y} stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
         <circle cx="60" cy="62" r="4" fill="currentColor" />
       </svg>
-      <figcaption className="-mt-1 text-center text-sm"><span className="font-medium">{pct === null ? "—" : `${num(pct, 0)}%`}</span>
+      <figcaption className="-mt-1 text-center text-sm"><span className="font-medium">{pct === null ? "—" : `${num(pct, 0)}${suffix}`}</span>
         <span className="block text-xs text-muted">{label}</span></figcaption>
     </figure>
   );
@@ -80,6 +80,73 @@ function Regime() {
           </div>
           <dl className="grid grid-cols-2 content-start gap-3 text-sm">{Object.entries(shown.signals || {}).map(([k, v]: any) => (
             <div key={k}><dt className="text-xs capitalize text-muted">{k.replaceAll("_", " ")}</dt><dd>{String(v)}</dd></div>))}</dl>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function RiskChart({ hist, on, off }: { hist: { date: string; score: number }[]; on: number; off: number }) {
+  if (hist.length < 2) return <p className="text-xs text-muted">The chart fills in as daily readings build up.</p>;
+  const W = 600, H = 120, y = (v: number) => H - (v / 100) * H, x = (i: number) => (i / (hist.length - 1)) * W;
+  const path = hist.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(h.score).toFixed(1)}`).join(" ");
+  return (
+    <figure>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="none" role="img"
+        aria-label={`Risk sentiment over the last ${hist.length} days, latest ${num(hist[hist.length - 1].score, 0)}`}>
+        <rect x="0" y="0" width={W} height={y(on)} fill="#3d4fd6" opacity="0.12" />
+        <rect x="0" y={y(off)} width={W} height={H - y(off)} fill="#e45d5d" opacity="0.12" />
+        <line x1="0" x2={W} y1={y(50)} y2={y(50)} stroke="currentColor" opacity="0.2" strokeDasharray="4 4" />
+        <path d={path} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <figcaption className="mt-1 flex justify-between text-xs text-muted"><span>{shortDate(hist[0].date)}</span>
+        <span>blue band = risk-on (≥{on}), red band = risk-off (≤{off})</span><span>{shortDate(hist[hist.length - 1].date)}</span></figcaption>
+    </figure>
+  );
+}
+
+function RiskSentiment() {
+  const { data, error, loading } = useApi<any>("/api/macro/risk");
+  const c = data?.current;
+  const tone = c?.label === "Risk-On" ? "text-[#7d8cff]" : c?.label === "Risk-Off" ? "text-[#ff7b7b]" : "text-muted";
+  return (
+    <Panel title="Risk sentiment">
+      <ErrorBox error={error} />
+      {loading && !data ? <Loading /> : !c || c.score === null ? (
+        <Empty href="/data-health" cta="Open Data health">No risk reading yet. It is worked out from daily FRED data (VIX, credit spreads, S&amp;P 500, FX).
+          On Data health, press Run now on &ldquo;Risk sentiment market series&rdquo;, or wait for the next automatic run.</Empty>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[14rem_1fr]">
+          <div className="flex flex-col items-center text-center">
+            <Gauge pct={c.score} suffix="/100" label="0 = extreme fear, 100 = extreme confidence" />
+            <p className={`mt-2 font-serif text-2xl ${tone}`}>{c.label}</p>
+            <p className="mt-1 text-xs text-muted">Market data up to {shortDate(c.data_date)}. {Math.round(c.coverage * 100)}% of signals available.</p>
+          </div>
+          <div className="min-w-0 space-y-4">
+            {c.implication && <p className="note text-sm">{c.implication}</p>}
+            {(c.notes || []).map((n: string) => (
+              <p key={n} className="rounded border border-amber/50 bg-amber/10 px-3 py-2 text-sm text-amber">{n}</p>
+            ))}
+            <ul className="space-y-3">
+              {c.components.map((k: any) => (
+                <li key={k.key} className="text-sm" title={k.reading}>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <span>{k.label}</span><span className="text-xs text-muted">{k.reading}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-3">
+                    <span className="relative h-2.5 flex-1 rounded bg-panel-2" aria-hidden>
+                      <span className="absolute inset-y-0 left-1/2 w-px bg-line" />
+                      <span className={`absolute inset-y-0 rounded ${k.score >= 0 ? "bg-[#3d4fd6]" : "bg-[#e45d5d]"}`}
+                        style={k.score >= 0 ? { left: "50%", width: `${k.score / 2}%` } : { right: "50%", width: `${-k.score / 2}%` }} />
+                    </span>
+                    <span className={`w-10 text-right tabular-nums ${k.score >= 0 ? "text-[#7d8cff]" : "text-[#ff7b7b]"}`}>{k.score > 0 ? "+" : ""}{num(k.score, 0)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {c.missing?.length > 0 && <p className="text-xs text-muted">Not enough data yet: {c.missing.join(", ")}.</p>}
+            <RiskChart hist={data.history} on={data.thresholds.risk_on} off={data.thresholds.risk_off} />
+          </div>
         </div>
       )}
     </Panel>
@@ -180,9 +247,10 @@ function Heatmap() {
 export default function Macro() {
   return (
     <>
-      <PageTitle title="Macro" subtitle="The global regime, and each currency's latest economic releases scored against forecasts." />
+      <PageTitle title="Macro" subtitle="The global regime, the risk-on / risk-off mood, and each currency's latest economic releases scored against forecasts." />
       <div className="space-y-6">
         <Regime />
+        <RiskSentiment />
         <Heatmap />
       </div>
     </>
