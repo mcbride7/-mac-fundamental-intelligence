@@ -109,28 +109,47 @@ const GREEN = "#43a047", RED = "#e53935", MIXED = "#9aa5b5";
 
 /** Round dial like a car gauge: Risk Off (red, left), Mixed (top), Risk On (green, right). */
 function RiskDial({ score, on, off }: { score: number; on: number; off: number }) {
-  // the dial sweeps 240 degrees, from bottom-left (0) over the top to bottom-right (100)
+  // the dial sweeps 240 degrees, from bottom-left (0) over the top to bottom-right (100), like a car gauge
   const ang = (v: number) => ((210 - (v / 100) * 240) * Math.PI) / 180;
   const pt = (v: number, r: number) => [100 + r * Math.cos(ang(v)), 100 - r * Math.sin(ang(v))];
   const arc = (a: number, b: number, r: number) => {
     const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r);
     return `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${(b - a) * 2.4 > 180 ? 1 : 0} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`;
   };
-  const [nx, ny] = pt(score, 62);
-  const ticks = [0, 20, 40, 50, 60, 80, 100];
+  const v = Math.max(0, Math.min(100, score));
+  const [nx, ny] = pt(v, 66);
+  const tail = pt(v, -14);
+  const major = [0, 25, 50, 75, 100];
+  const minor = Array.from({ length: 21 }, (_, i) => i * 5).filter((t) => !major.includes(t));
   return (
-    <svg viewBox="0 0 200 200" className="w-56 max-w-full" role="img" aria-label={`Risk dial at ${Math.round(score)} out of 100`}>
-      <circle cx="100" cy="100" r="92" fill="#eef1f5" stroke="#c9d0da" strokeWidth="5" />
-      <path d={arc(0, off, 74)} fill="none" stroke={RED} strokeWidth="16" />
-      <path d={arc(off, on, 74)} fill="none" stroke={MIXED} strokeWidth="6" opacity="0.6" />
-      <path d={arc(on, 100, 74)} fill="none" stroke={GREEN} strokeWidth="16" />
-      {ticks.map((t) => { const [x1, y1] = pt(t, 86), [x2, y2] = pt(t, 80); return <line key={t} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#5b6573" strokeWidth="2" />; })}
-      <text x={pt(15, 50)[0]} y={pt(15, 50)[1]} fontSize="11" fill="#5b6573" textAnchor="middle">R.Off</text>
-      <text x="100" y="40" fontSize="11" fill="#5b6573" textAnchor="middle">Mixed</text>
-      <text x={pt(85, 50)[0]} y={pt(85, 50)[1]} fontSize="11" fill="#5b6573" textAnchor="middle">R.On</text>
-      <line x1="100" y1="100" x2={nx} y2={ny} stroke="#e8602c" strokeWidth="3.5" strokeLinecap="round" />
-      <circle cx="100" cy="100" r="11" fill="#2f80ed" />
-      <text x="100" y="160" fontSize="24" fontWeight="600" fill="#2b3340" textAnchor="middle">{Math.round(score)}</text>
+    <svg viewBox="0 0 200 200" className="w-60 max-w-full drop-shadow-lg" role="img" aria-label={`Risk dial at ${Math.round(v)} out of 100`}>
+      <defs>
+        <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ffffff" /><stop offset="0.45" stopColor="#c7ccd3" /><stop offset="1" stopColor="#8d949e" />
+        </linearGradient>
+        <radialGradient id="face" cx="0.45" cy="0.4" r="0.7">
+          <stop offset="0" stopColor="#ffffff" /><stop offset="1" stopColor="#dfe3e8" />
+        </radialGradient>
+        <radialGradient id="hub" cx="0.35" cy="0.35" r="0.7">
+          <stop offset="0" stopColor="#6fb1ff" /><stop offset="1" stopColor="#1f6fd6" />
+        </radialGradient>
+      </defs>
+      <circle cx="100" cy="100" r="96" fill="url(#rim)" />
+      <circle cx="100" cy="100" r="86" fill="url(#face)" stroke="#aeb5be" strokeWidth="1" />
+      <path d={arc(0, off, 70)} fill="none" stroke={RED} strokeWidth="15" />
+      <path d={arc(on, 100, 70)} fill="none" stroke={GREEN} strokeWidth="15" />
+      <path d={arc(0, off, 77.5)} fill="none" stroke="#8a1f1c" strokeWidth="1" opacity="0.5" />
+      <path d={arc(on, 100, 77.5)} fill="none" stroke="#2c6e2f" strokeWidth="1" opacity="0.5" />
+      {minor.map((t) => { const [x1, y1] = pt(t, 82), [x2, y2] = pt(t, 78.5); return <line key={t} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#7b8490" strokeWidth="1" />; })}
+      {major.map((t) => { const [x1, y1] = pt(t, 83), [x2, y2] = pt(t, 75); return <line key={t} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#3c4450" strokeWidth={t === 50 ? 3 : 2} />; })}
+      <text x="100" y="47" fontSize="10" fill="#4f5966" textAnchor="middle">Mixed</text>
+      <text x={pt(22, 50)[0]} y={pt(22, 50)[1] + 3} fontSize="10" fill="#4f5966" textAnchor="middle">R.Off</text>
+      <text x={pt(78, 50)[0]} y={pt(78, 50)[1] + 3} fontSize="10" fill="#4f5966" textAnchor="middle">R.On</text>
+      <text x={pt(2, 58)[0] + 6} y={pt(2, 58)[1] - 2} fontSize="8.5" fill="#6b7480" textAnchor="middle">R.Off−</text>
+      <text x={pt(98, 58)[0] - 6} y={pt(98, 58)[1] - 2} fontSize="8.5" fill="#6b7480" textAnchor="middle">R.On+</text>
+      <line x1={tail[0]} y1={tail[1]} x2={nx} y2={ny} stroke="#ef5a24" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="100" cy="100" r="12" fill="url(#hub)" stroke="#155bb5" strokeWidth="1" />
+      <text x="100" y="168" fontSize="22" fontWeight="600" fill="#3a4350" textAnchor="middle">{Math.round(v)}</text>
     </svg>
   );
 }
