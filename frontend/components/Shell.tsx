@@ -8,6 +8,7 @@ import { api, logout } from "@/lib/api";
 
 const NAV: { href: string; label: string }[] = [
   { href: "/", label: "Home" },
+  { href: "/setups", label: "Top setups" },
   { href: "/markets", label: "Markets" },
   { href: "/central-banks", label: "Central banks" },
   { href: "/calendar", label: "Economic calendar" },

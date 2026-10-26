@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import CurrencyMatrix from "@/components/CurrencyMatrix";
+import TopSetups from "@/components/TopSetups";
 import { Disclaimer, Empty, ErrorBox, GradeBadge, Loading, Panel, PolicyDial, StatusBadge } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { biasClass, date, dateTime, num, pair, signed, toneClass } from "@/lib/format";
@@ -45,6 +46,15 @@ export default function Home() {
         </Panel>
       </section>
 
+      <section aria-labelledby="top-setups">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="top-setups" className="text-xl font-semibold">Top setups</h2>
+          <Link href="/setups" className="text-sm text-verify">All setups and how they&rsquo;re scored</Link>
+        </div>
+        <p className="mb-3 text-sm text-muted">Central bank and rate expectations, economic data and inflation, COT positioning, seasonality and retail sentiment, combined. Strongest first.</p>
+        <TopSetups limit={6} />
+      </section>
+
       <Panel title="Central banks" action={<Link href="/central-banks" className="text-sm text-verify">All banks</Link>}>
         <div className="overflow-x-auto">
           <table className="grid-table">
@@ -69,7 +79,7 @@ export default function Home() {
       </Panel>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="Highest-conviction setups" action={<Link href="/analysis" className="text-sm text-verify">All assets</Link>}>
+        <Panel title="Fundamental setups (rates and macro only)" action={<Link href="/analysis" className="text-sm text-verify">All assets</Link>}>
           {d.top_setups.length === 0 ? <Empty>No setups computed yet.</Empty> : (
             <table className="grid-table">
               <thead><tr><th>Asset</th><th>Grade</th><th>Direction</th><th>Confluence</th><th>Driver / reason</th></tr></thead>

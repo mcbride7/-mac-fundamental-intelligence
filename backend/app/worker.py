@@ -35,6 +35,8 @@ celery_app.conf.beat_schedule = {
                      "schedule": crontab(minute=15, hour=21, day_of_week="fri"), "args": ["cftc"]},
     "cftc-cot-catchup": {"task": "app.worker.run_source_task",
                          "schedule": crontab(minute=0, hour=6, day_of_week="sat,mon,tue"), "args": ["cftc"]},
+    "myfxbook-2h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=40, hour="*/2"),
+                    "args": ["myfxbook"]},
     "seasonality-weekly": {"task": "app.worker.run_source_task",
                            "schedule": crontab(minute=30, hour=4, day_of_week="sun"), "args": ["seasonality"]},
     "risk-sentiment-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=50, hour="*/6"),

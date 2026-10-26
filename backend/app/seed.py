@@ -54,6 +54,8 @@ SOURCES = [
      "https://publicreporting.cftc.gov", "US", None, 10080, {}),
     ("seasonality", "Seasonality price histories (FRED daily since 2000, gold and silver from Twelve Data)", "1", "api",
      "https://fred.stlouisfed.org", None, None, 10080, {}),
+    ("myfxbook", "Myfxbook retail sentiment (Community Outlook)", "2", "api", "https://www.myfxbook.com",
+     None, None, 360, {}),
     ("twelvedata", "Twelve Data market prices", "2", "api", "https://twelvedata.com", None, None, 15, {}),
     ("calendar_csv", "Calendar CSV import", "2", "csv", None, None, None, 10080, {}),
     ("manual", "User-supplied manual data", "M", "manual", None, None, None, 0, {}),

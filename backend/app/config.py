@@ -49,6 +49,9 @@ class Settings:
 
     # Uploads
     storage_dir: str = field(default_factory=lambda: os.getenv("STORAGE_DIR", "./storage"))
+    # Retail sentiment: a free Myfxbook account (Community Outlook). Optional; values can also be typed in.
+    myfxbook_email: str | None = field(default_factory=lambda: os.getenv("MYFXBOOK_EMAIL") or None)
+    myfxbook_password: str | None = field(default_factory=lambda: os.getenv("MYFXBOOK_PASSWORD") or None)
     s3_bucket: str | None = field(default_factory=lambda: os.getenv("S3_BUCKET") or None)
     s3_endpoint_url: str | None = field(default_factory=lambda: os.getenv("S3_ENDPOINT_URL") or None)
     max_upload_mb: int = field(default_factory=lambda: int(os.getenv("MAX_UPLOAD_MB", "20")))
