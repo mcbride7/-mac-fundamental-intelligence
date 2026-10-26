@@ -96,7 +96,8 @@ export default function SetupsTable({ limit }: { limit?: number }) {
                 </td>
                 <td className="whitespace-nowrap px-1.5 py-1.5 text-center font-medium" style={biasStyle(r.bias)}>{r.bias}</td>
                 <td className="px-1.5 py-1.5 text-center font-semibold">{r.score}</td>
-                {cols.map((c) => { const x = cell(r.cells[c.key]); return <td key={c.key} className="border-l border-line/40 px-1 py-1.5 text-center" style={x.style}>{x.text}</td>; })}
+                {cols.map((c) => { const x = cell(r.cells[c.key]); const note = r.notes?.[c.key];
+                  return <td key={c.key} title={note || undefined} className={`border-l border-line/40 px-1 py-1.5 text-center ${note ? "cursor-help" : ""} ${c.key === "cb_div" ? "font-semibold" : ""}`} style={x.style}>{x.text}</td>; })}
               </tr>
             ))}
             {!shown.length && <tr><td colSpan={4 + cols.length} className="px-3 py-4 text-center text-muted">No symbols match these filters.</td></tr>}
@@ -105,6 +106,7 @@ export default function SetupsTable({ limit }: { limit?: number }) {
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
         <span>Each cell is −2 to +2 (blue = bullish, red = bearish, blank = no data). Score = the sum. Pairs compare base vs quote; gold, silver and the T-note read US data the other way round.
+          CB divergence compares the two central banks&rsquo; policy scores (10+ points apart = ±1, 25+ = ±2; hover a cell for the numbers).
           Scores refresh every 10 minutes.</span>
         {limit && rows.length > limit && (
           <button className="rounded border border-line px-2 py-1 text-text hover:bg-panel-2" onClick={() => setShowAll(!showAll)}>

@@ -37,7 +37,7 @@ CATEGORY = {**{p: "FX majors" for p in MAJORS}, **{p: "FX crosses" for p in CROS
             **{k: v[1] for k, v in OTHER.items()}}
 
 TREND_COLS = [("trend", "Trend"), ("seasonality", "Seasonality"), ("cot", "COT"), ("crowd", "Crowd sentiment")]
-MACRO_COLS = [("cb", "CB tone"), ("rate_exp", "Rate expect."), ("gdp", "GDP"), ("mpmi", "mPMI"), ("spmi", "sPMI"),
+MACRO_COLS = [("cb_div", "CB diverg."), ("cb", "CB tone"), ("rate_exp", "Rate expect."), ("gdp", "GDP"), ("mpmi", "mPMI"), ("spmi", "sPMI"),
               ("retail_sales", "Retail sales"), ("conf", "Cnsmr conf"), ("cpi", "CPI YoY"), ("ppi", "PPI"),
               ("pce", "PCE YoY"), ("rates", "Interest rates"), ("nfp", "NFP / Jobs"), ("unemp", "Unemploy. rate"),
               ("claims", "Unemploy. claims"), ("adp", "ADP"), ("jolts", "JOLTS")]
@@ -151,6 +151,19 @@ def cot_cell(db: Session, code: str) -> int | None:
     return None if sc is None else (1 if sc >= 0.4 else -1 if sc <= -0.4 else 0)
 
 
+CB_NAME = {"USD": "Fed", "EUR": "ECB", "GBP": "BoE", "JPY": "BoJ", "CHF": "SNB", "CAD": "BoC", "AUD": "RBA",
+           "NZD": "RBNZ", "ZAR": "SARB", "MXN": "Banxico"}
+
+
+def divergence_cell(gap: float | None) -> int | None:
+    """Policy-score gap between two central banks (0-100 scale): 10+ points = 1, 25+ points = 2."""
+    if gap is None:
+        return None
+    a = abs(gap)
+    v = 2 if a >= 25 else 1 if a >= 10 else 0
+    return v if gap > 0 else -v
+
+
 def bias_of(score: int) -> str:
     return ("Very Bullish" if score >= 7 else "Bullish" if score >= 4 else "Very Bearish" if score <= -7
             else "Bearish" if score <= -4 else "Neutral")
@@ -168,9 +181,13 @@ def compute(db: Session, today: date | None = None) -> dict:
     series = {k: dict(ss._obs(db, k)) for k in ["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDJPY", "USDCHF", "USDCAD",
                                                 "USDZAR", "USDMXN", "XAUUSD", "XAGUSD", "SPX", "US10Y"]}
     moves = daily_moves(db, 1)
+    pscore = {c: (snaps[c].policy_score if snaps.get(c) is not None else None) for c in FX + ["ZAR", "MXN"]}
+    others = [v for c, v in pscore.items() if c != "USD" and v is not None]
+    world = statistics.fmean(others) if others else None
     rows = []
     for asset in MAJORS + CROSSES + EM + list(OTHER):
         cells: dict[str, int | None] = {}
+        notes: dict[str, str] = {}
         if asset in OTHER:
             name = OTHER[asset][0]
             usd = ccy_cells["USD"]
@@ -181,6 +198,12 @@ def compute(db: Session, today: date | None = None) -> dict:
             else:
                 # gold, silver and T-notes: soft US data and a dovish Fed are supportive
                 cells.update({k: -usd.get(k, 0) for k, _ in MACRO_COLS})
+            fed = pscore.get("USD")
+            gap = None if fed is None or world is None else world - fed  # Fed more dovish than the rest = positive
+            cells["cb_div"] = divergence_cell(gap)
+            if gap is not None:
+                notes["cb_div"] = (f"Fed policy score {fed:.0f} vs other central banks' average {world:.0f}: "
+                                   f"{'Fed relatively dovish (supportive)' if gap > 0 else 'Fed relatively hawkish (headwind)' if gap < 0 else 'in line'}")
             cells["cot"] = cot_cell(db, COT_CODE[asset])
             mode = "bp" if asset == "US10T" else "pct"
             chg = moves.get({"XAUUSD": "GOLD", "XAGUSD": "SILVER", "US500": "SPX500"}.get(asset, ""), {})
@@ -193,6 +216,13 @@ def compute(db: Session, today: date | None = None) -> dict:
             cb_, cq = ccy_cells.get(b, {}), ccy_cells.get(q, {})
             for k, _ in MACRO_COLS:
                 cells[k] = cb_.get(k, 0) - cq.get(k, 0)
+            pb, pq = pscore.get(b), pscore.get(q)
+            gap = None if pb is None or pq is None else pb - pq
+            cells["cb_div"] = divergence_cell(gap)
+            if gap is not None:
+                hawk, dove = (b, q) if gap >= 0 else (q, b)
+                notes["cb_div"] = (f"{CB_NAME.get(b, b)} {pb:.0f} vs {CB_NAME.get(q, q)} {pq:.0f} (0 = very dovish, "
+                                   f"100 = very hawkish): {CB_NAME.get(hawk, hawk)} more hawkish by {abs(gap):.0f} points")
             xb, xq = cot_ccy.get(b), cot_ccy.get(q)
             cells["cot"] = (xb or 0) - (xq or 0) if (xb is not None or xq is not None) else None
             mode = "pct"
@@ -213,7 +243,7 @@ def compute(db: Session, today: date | None = None) -> dict:
         rows.append({"symbol": asset, "name": name, "category": CATEGORY[asset], "score": score, "bias": bias_of(score),
                      "cells": cells, "technical": tech, "sentiment_cot": sentcot, "macro": macro_sum,
                      "day_change": day_change, "day_change_unit": "bp" if asset == "US10T" else "%",
-                     "retail_long_pct": rr.long_pct if rr else None})
+                     "retail_long_pct": rr.long_pct if rr else None, "notes": notes})
     rows.sort(key=lambda r: (-r["score"], r["symbol"]))
     out = {"as_of": today.isoformat(),
            "groups": [{"key": "trend", "label": "Trend & sentiment", "columns": [{"key": k, "label": l} for k, l in TREND_COLS]},

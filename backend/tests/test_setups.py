@@ -73,3 +73,11 @@ def test_table_columns_and_scores(client, db):
     assert all(-2 <= v <= 2 for r in d["rows"] for v in r["cells"].values() if v is not None)
     assert rows["GBPUSD"]["score"] == sum(v for v in rows["GBPUSD"]["cells"].values() if v is not None)
     assert len(d["rows"]) == len(tb.MAJORS + tb.CROSSES + tb.EM) + len(tb.OTHER)
+
+
+def test_cb_divergence_column():
+    from app.services import setups_table as tb
+
+    assert tb.divergence_cell(30) == 2 and tb.divergence_cell(-12) == -1 and tb.divergence_cell(5) == 0
+    assert tb.divergence_cell(None) is None
+    assert tb.MACRO_COLS[0] == ("cb_div", "CB diverg.")
