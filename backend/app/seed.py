@@ -50,6 +50,8 @@ SOURCES = [
      None, None, 720, {}),
     ("risk", "Risk sentiment market series (FRED daily: VIX, credit spreads, S&P 500, FX)", "1", "api",
      "https://fred.stlouisfed.org", "US", None, 1440, {}),
+    ("cftc", "CFTC Commitments of Traders (weekly positioning)", "1", "api",
+     "https://publicreporting.cftc.gov", "US", None, 10080, {}),
     ("twelvedata", "Twelve Data market prices", "2", "api", "https://twelvedata.com", None, None, 15, {}),
     ("calendar_csv", "Calendar CSV import", "2", "csv", None, None, None, 10080, {}),
     ("manual", "User-supplied manual data", "M", "manual", None, None, None, 0, {}),
@@ -174,6 +176,10 @@ def seed(db: Session) -> None:
                              frequency=freq, importance=imp, transform=tr, higher_is=hi, aliases=aliases,
                              fred_series=fred, official_source_key=off, central_bank_code=cb,
                              projection_variable=pv))
+    from app.services.cot import import_bundled
+
+    db.flush()
+    import_bundled(db)  # first start only: the stored COT history (Jan 2025 onwards)
     if db.scalar(select(User).where(User.id == 1)) is None:
         db.add(User(id=1, email="owner@localhost", name="Owner"))
         db.flush()

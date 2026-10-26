@@ -29,6 +29,12 @@ celery_app.conf.beat_schedule = {
     "statcan-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=35, hour="*/6"),
                    "args": ["statcan"]},
     "abs-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=45, hour="*/6"), "args": ["abs"]},
+    # CFTC publishes COT on Fridays 15:30 US Eastern (19:30-20:30 UTC). Try late Friday, again Saturday
+    # morning, and Monday/Tuesday to catch weeks delayed by US holidays.
+    "cftc-cot-fri": {"task": "app.worker.run_source_task",
+                     "schedule": crontab(minute=15, hour=21, day_of_week="fri"), "args": ["cftc"]},
+    "cftc-cot-catchup": {"task": "app.worker.run_source_task",
+                         "schedule": crontab(minute=0, hour=6, day_of_week="sat,mon,tue"), "args": ["cftc"]},
     "risk-sentiment-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=50, hour="*/6"),
                           "args": ["risk"]},
     "forexfactory-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=20, hour="*/6"),

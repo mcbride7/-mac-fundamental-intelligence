@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.ingestion import central_banks, forexfactory, fred, markets, official
 from app.ingestion.base import run_source
-from app.services import risk_sentiment
+from app.services import cot, risk_sentiment
 
 JOBS = {
     "fred": fred.run_fred,
@@ -21,6 +21,7 @@ JOBS = {
     "statcan": official.runner("statcan"),
     "abs": official.runner("abs"),
     "risk": risk_sentiment.run_risk,
+    "cftc": cot.run_cftc,
 }
 
 

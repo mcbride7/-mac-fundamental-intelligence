@@ -13,6 +13,7 @@ const NAV: { href: string; label: string }[] = [
   { href: "/calendar", label: "Economic calendar" },
   { href: "/macro", label: "Macro" },
   { href: "/risk", label: "Risk sentiment" },
+  { href: "/cot", label: "COT positioning" },
   { href: "/currencies", label: "Currencies" },
   { href: "/bonds", label: "Bonds" },
   { href: "/scenarios", label: "Scenarios" },
