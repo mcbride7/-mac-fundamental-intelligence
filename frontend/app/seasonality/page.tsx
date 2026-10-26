@@ -48,32 +48,64 @@ function Leaders({ data, title, groupOf, group }: { data: any; title: string; gr
   );
 }
 
-function MonthBars({ months, mode, current }: { months: any[]; mode: string; current: number }) {
-  const W = 760, H = 230, L = 46, T = 18, B = 34, ih = H - T - B, iw = W - L - 10;
-  const vals = months.map((m) => m.avg ?? 0);
-  const lim = Math.max(0.0001, ...vals.map(Math.abs)) * 1.15;
-  const y = (v: number) => T + ih / 2 - (v / lim) * (ih / 2);
+function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
+  months: any[]; mode: string; current: number; thisYear?: (number | null)[]; latest?: number; latestDate?: string;
+}) {
+  const W = 780, H = 290, L = 50, T = 42, B = 36, ih = H - T - B, iw = W - L - 10;
+  const ty = thisYear || [];
+  const vals = [...months.map((m) => m.avg ?? 0), ...ty.filter((v): v is number => v !== null)];
+  const lim = Math.max(0.0001, ...vals.map(Math.abs)) * 1.18;
+  const y = (v: number) => T + ih / 2 - (Math.max(-lim, Math.min(lim, v)) / lim) * (ih / 2);
   const bw = iw / 12;
+  const year = latestDate ? latestDate.slice(0, 4) : String(new Date().getFullYear());
+  const label = (v: number | null | undefined) => (v === null || v === undefined ? "" : mv(v, mode, mode === "bp" ? 0 : 1));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[34rem]" role="img" aria-label="Average move by month">
-      <line x1={L} x2={W - 10} y1={y(0)} y2={y(0)} stroke="currentColor" opacity="0.35" />
-      {[lim, lim / 2, -lim / 2, -lim].map((t) => (
-        <text key={t} x={L - 6} y={y(t) + 4} fontSize="10.5" textAnchor="end" fill="currentColor" opacity="0.55">{mv(t, mode, 1)}</text>
-      ))}
-      {months.map((m, i) => {
-        const v = m.avg ?? 0, x = L + i * bw + bw * 0.15;
-        return (
-          <g key={m.month}>
-            {i + 1 === current && <rect x={L + i * bw + 2} y={T - 14} width={bw - 4} height={ih + 30} fill="currentColor" opacity="0.06" rx="4" />}
-            <rect x={x} width={bw * 0.7} y={Math.min(y(v), y(0))} height={Math.max(1, Math.abs(y(v) - y(0)))} fill={v >= 0 ? GREEN : RED} opacity="0.9">
-              <title>{`${m.name}: average ${mv(m.avg, mode)}, median ${mv(m.median, mode)}, up in ${m.win_rate}% of ${m.n} years`}</title>
-            </rect>
-            <text x={L + i * bw + bw / 2} y={H - 18} fontSize="11" textAnchor="middle" fill="currentColor" opacity="0.75">{m.name}</text>
-            <text x={L + i * bw + bw / 2} y={H - 5} fontSize="10" textAnchor="middle" fill="currentColor" opacity="0.55">{m.win_rate == null ? "" : `${m.win_rate}%`}</text>
-          </g>
-        );
-      })}
-    </svg>
+    <figure>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[36rem]" role="img" aria-label="Average move by month, with this year's moves and the current price">
+        {latest !== undefined && (
+          <text x={L} y={14} fontSize="12.5" fill="currentColor">
+            <tspan fontWeight="600">Current price {fmtPrice(latest, mode)}</tspan>
+            <tspan opacity="0.65">{latestDate ? `  ·  ${latestDate}` : ""}{ty[current - 1] != null ? `  ·  ${MONTHS[current - 1]} so far ${mv(ty[current - 1], mode)}` : ""}</tspan>
+          </text>
+        )}
+        <line x1={L} x2={W - 10} y1={y(0)} y2={y(0)} stroke="currentColor" opacity="0.35" />
+        {[lim, lim / 2, -lim / 2, -lim].map((t) => (
+          <text key={t} x={L - 6} y={y(t) + 4} fontSize="10.5" textAnchor="end" fill="currentColor" opacity="0.55">{mv(t, mode, 1)}</text>
+        ))}
+        {months.map((m, i) => {
+          const v = m.avg ?? 0, x0 = L + i * bw, x = x0 + bw * 0.14, w = bw * 0.46;
+          const actual = ty[i];
+          const top = v >= 0;
+          return (
+            <g key={m.month}>
+              {i + 1 === current && <rect x={x0 + 2} y={T - 12} width={bw - 4} height={ih + 24} fill="currentColor" opacity="0.07" rx="4" />}
+              <rect x={x} width={w} y={Math.min(y(v), y(0))} height={Math.max(1, Math.abs(y(v) - y(0)))} fill={v >= 0 ? GREEN : RED} opacity="0.9">
+                <title>{`${m.name}: average ${mv(m.avg, mode)}, median ${mv(m.median, mode)}, up in ${m.win_rate}% of ${m.n} years`}</title>
+              </rect>
+              {m.avg != null && (
+                <text x={x + w / 2} y={top ? y(v) - 4 : y(v) + 11} fontSize="9.5" textAnchor="middle" fill="currentColor" opacity="0.9">{label(m.avg)}</text>
+              )}
+              {actual !== null && actual !== undefined && (
+                <g>
+                  <line x1={x0 + bw * 0.66} x2={x0 + bw * 0.9} y1={y(actual)} y2={y(actual)} stroke="#f2f2f2" strokeWidth="3" strokeLinecap="round" />
+                  <line x1={x0 + bw * 0.78} x2={x0 + bw * 0.78} y1={y(0)} y2={y(actual)} stroke="#f2f2f2" strokeWidth="1" opacity="0.45" />
+                  <text x={x0 + bw * 0.78} y={actual >= 0 ? y(actual) - 5 : y(actual) + 12} fontSize="9.5" textAnchor="middle"
+                    fill={actual >= 0 ? "#9ccc65" : "#ff7b7b"} fontWeight="600">{label(actual)}{i + 1 === current ? " now" : ""}</text>
+                  <title>{`${m.name} ${year}${i + 1 === current ? " so far" : ""}: ${mv(actual, mode)} (average ${mv(m.avg, mode)})`}</title>
+                </g>
+              )}
+              <text x={x0 + bw / 2} y={H - 19} fontSize="11" textAnchor="middle" fill="currentColor" opacity="0.75">{m.name}</text>
+              <text x={x0 + bw / 2} y={H - 6} fontSize="10" textAnchor="middle" fill="currentColor" opacity="0.55">{m.win_rate == null ? "" : `${m.win_rate}% up`}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+        <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: GREEN }} /><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: RED }} />Average move (number on the bar)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-[3px]" style={{ borderColor: "#f2f2f2" }} />{year} actual move (current month = so far)</span>
+        <span>Bottom row: how often the month rose</span>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -229,8 +261,8 @@ function Detail({ k, years, current, view, options, onPick }: {
         ) : <p className="text-sm text-muted">Weekly seasonality needs daily prices; {a.name} only has monthly prices.</p>
       ) : (
         <div>
-          <h3 className="mb-1 font-medium">Average move by month <span className="text-sm text-muted">· win rate under each month</span></h3>
-          <div className="overflow-x-auto"><MonthBars months={a.months} mode={a.mode} current={current} /></div>
+          <h3 className="mb-1 font-medium">Average move by month vs this year <span className="text-sm text-muted">· win rate under each month</span></h3>
+          <div className="overflow-x-auto"><MonthBars months={a.months} mode={a.mode} current={current} thisYear={a.this_year} latest={a.latest} latestDate={a.latest_date} /></div>
         </div>
       )}
       {a.path && (

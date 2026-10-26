@@ -166,7 +166,10 @@ def asset_view(db: Session, key: str, years: int = 10, today: date | None = None
         "next_30": sx.forward_window(obs, years, 30, mode, today) if daily else None,
         "this_month": stats[today.month - 1], "next_month": stats[nm - 1],
         "weeks": weeks, "this_week": this_week, "next_week": next_week, "week_now": sx.week_of(today),
-        "latest": obs[-1][1], "month_to_date": mtd, "year_to_date": ytd,
+        "latest": obs[-1][1], "latest_date": obs[-1][0].isoformat(), "month_to_date": mtd, "year_to_date": ytd,
+        # this year's actual move in each month (current month = so far), to set against the averages
+        "this_year": [mtd if m == today.month else moves.get((today.year, m)) if m < today.month else None
+                      for m in range(1, 13)],
     }
 
 
