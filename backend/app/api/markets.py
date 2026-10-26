@@ -222,6 +222,24 @@ def _risk_tiles(db: Session, back: int = 1) -> list[dict]:
     return out
 
 
+@router.get("/seasonality")
+def seasonality_overview(years: int = 10, db: Session = Depends(get_db)):
+    """Average move and win rate for every asset in every calendar month, plus this and next month's leaders."""
+    from app.services import seasonality as ss
+
+    return ss.overview(db, max(3, min(years, 25)))
+
+
+@router.get("/seasonality/{key}")
+def seasonality_asset(key: str, years: int = 10, db: Session = Depends(get_db)):
+    from app.services import seasonality as ss
+
+    try:
+        return ss.asset_view(db, key.upper(), max(3, min(years, 25)))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+
+
 @router.get("/macro/heatmap")
 def macro_heatmap(currency: str = "USD", db: Session = Depends(get_db)):
     """Economic heatmap for one currency: latest releases with surprise, currency and stocks impact."""
