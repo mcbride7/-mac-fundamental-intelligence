@@ -7,7 +7,7 @@ export default function RiskPage() {
   return (
     <>
       <PageTitle title="Risk sentiment"
-        subtitle="Is the market in a risk-on or risk-off mood today? Worked out from VIX, credit spreads, stocks, bonds, gold and currencies, updated every 6 hours." />
+        subtitle="Is the market in a risk-on or risk-off mood? Daily, weekly and monthly readings from VIX, credit spreads, stocks, bonds, gold and currencies, updated every 6 hours." />
       <RiskSentiment />
     </>
   );

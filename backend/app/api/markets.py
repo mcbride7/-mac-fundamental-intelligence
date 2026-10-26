@@ -169,57 +169,53 @@ def regime(db: Session = Depends(get_db)):
 
 
 @router.get("/macro/risk")
-def risk_sentiment(days: int = 120, db: Session = Depends(get_db)):
-    """Risk-on / risk-off score: latest reading with its signals, plus one reading per day for the chart."""
-    from datetime import timedelta
-
-    from app.analytics.risk import FX_IMPLICATION, RISK_OFF, RISK_ON, WEIGHTS
-    from app.db import utcnow
-    from app.models import RiskSentiment
-
-    cur = db.scalar(select(RiskSentiment).order_by(RiskSentiment.as_of.desc(), RiskSentiment.id.desc()))
-    since = utcnow() - timedelta(days=days)
-    daily: dict[str, dict] = {}
-    for r in db.scalars(select(RiskSentiment).where(RiskSentiment.as_of >= since, RiskSentiment.score.is_not(None))
-                        .order_by(RiskSentiment.as_of)):
-        day = (r.data_date or r.as_of.date().isoformat())
-        daily[day] = {"date": day, "score": r.score, "label": r.label}  # last reading of each day wins
-    from app.analytics.risk import daily_evaluation
-    from app.services.daily_moves import daily_moves
+def risk_sentiment(horizon: str = "daily", days: int = 120, db: Session = Depends(get_db)):
+    """Risk-on / risk-off for one time frame (daily, weekly or monthly): score, signals, a plain-English note,
+    the bullish / bearish lists with their % changes over that period, price boxes, and history."""
+    from app.analytics.risk import FX_IMPLICATION, HORIZONS, RISK_OFF, RISK_ON, WEIGHTS, daily_evaluation, explain
     from app.services import heatmap as hm
+    from app.services.daily_moves import LOOKBACK, daily_moves
+    from app.services.risk_sentiment import reading
 
+    if horizon not in HORIZONS:
+        raise HTTPException(422, "horizon must be daily, weekly or monthly")
+    r = reading(db, horizon, min(max(days, 10), 365))
+    if r["score"] is None:
+        return {"horizon": horizon, "current": None, "history": [], "tiles": _risk_tiles(db, LOOKBACK[horizon]),
+                "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF}, "weights": WEIGHTS,
+                "evaluation": daily_evaluation("No data") | {"moves": daily_moves(db, LOOKBACK[horizon])}}
     scores = {}
-    if cur is not None and cur.label == "Neutral":
-        scores = {c: sum(1 if r["currency_impact"] == "Bullish" else -1 if r["currency_impact"] == "Bearish" else 0
-                         for r in hm.rows_for(db, c)) for c in hm.CURRENCIES}
-    from app.analytics.risk import explain
-
-    return {"current": row(cur) | {"implication": FX_IMPLICATION.get(cur.label, ""),
-                                   "why": explain(cur.label, cur.score, cur.components or [])} if cur else None,
-            "history": list(daily.values()), "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF},
-            "weights": WEIGHTS, "tiles": _risk_tiles(db),
-            "evaluation": daily_evaluation(cur.label if cur else "No data", scores) | {"moves": daily_moves(db)}}
+    if r["label"] == "Neutral":
+        scores = {c: sum(1 if x["currency_impact"] == "Bullish" else -1 if x["currency_impact"] == "Bearish" else 0
+                         for x in hm.rows_for(db, c)) for c in hm.CURRENCIES}
+    history = r.pop("history")
+    current = r | {"implication": FX_IMPLICATION.get(r["label"], ""),
+                   "why": explain(r["label"], r["score"], r["components"])}
+    return {"horizon": horizon, "current": current, "history": history,
+            "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF}, "weights": WEIGHTS,
+            "tiles": _risk_tiles(db, LOOKBACK[horizon]),
+            "evaluation": daily_evaluation(r["label"], scores) | {"moves": daily_moves(db, LOOKBACK[horizon])}}
 
 
 TILES = [("BTCUSD", "BTC/USD"), ("EURUSD", "EUR/USD"), ("SPX", "SPX500"), ("XAUUSD", "GOLD"), ("USDJPY", "USD/JPY")]
 
 
-def _risk_tiles(db: Session) -> list[dict]:
+def _risk_tiles(db: Session, back: int = 1) -> list[dict]:
     """Price boxes for the risk panel (Twelve Data, falling back to FRED's daily closes), plus VIX and the
     US 10-year yield."""
     from app.services.daily_moves import _last_two, _pct, symbol_changes, ten_year
 
-    sym = symbol_changes(db)
+    sym = symbol_changes(db, back)
     out = []
     for s, label in TILES:
         if s in sym:
             out.append({"symbol": s, "label": label, "price": sym[s]["price"],
                         "change_1d_pct": sym[s]["change_pct"], "source": sym[s]["source"]})
-    vix = _last_two(db, "vix")
+    vix = _last_two(db, "vix", back)
     if vix:
         out.append({"symbol": "VIX", "label": "VIX", "price": vix[1], "change_1d_pct": _pct(vix),
                     "source": "FRED (daily)"})
-    ty = ten_year(db)
+    ty = ten_year(db, back)
     if ty:
         out.append({"symbol": "US10Y", "label": "US 10Y yield", "price": ty["yield"], "unit": "%",
                     "change_bps": ty["change_bps"], "source": "FRED (daily)"})

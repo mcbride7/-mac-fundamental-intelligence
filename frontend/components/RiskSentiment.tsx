@@ -1,6 +1,8 @@
 "use client";
 
 import { Empty, ErrorBox, Loading, Panel } from "@/components/ui";
+import { useState } from "react";
+
 import { useApi } from "@/lib/api";
 import { num } from "@/lib/format";
 
@@ -77,13 +79,36 @@ function RiskDial({ score, on, off }: { score: number; on: number; off: number }
   );
 }
 
-function Tile({ t }: { t: any }) {
+const FRAMES = [
+  { key: "daily", name: "Daily", short: "D", period: "1-day", explain: "5-day moves, 20-day trend" },
+  { key: "weekly", name: "Weekly", short: "W", period: "1-week", explain: "20-day moves, 50-day trend" },
+  { key: "monthly", name: "Monthly", short: "M", period: "1-month", explain: "60-day moves, 100-day trend" },
+] as const;
+type Frame = (typeof FRAMES)[number];
+
+function FrameTab({ f, active, onClick }: { f: Frame; active: boolean; onClick: () => void }) {
+  const { data } = useApi<any>(`/api/macro/risk?horizon=${f.key}&days=10`);
+  const c = data?.current;
+  const col = c?.label === "Risk-On" ? "#43a047" : c?.label === "Risk-Off" ? "#e53935" : "#9aa5b5";
+  return (
+    <button role="tab" aria-selected={active} onClick={onClick}
+      className={`flex-1 rounded-md border px-3 py-2 text-left ${active ? "border-verify bg-panel-2" : "border-line hover:bg-panel-2/50"}`}>
+      <span className="block text-sm font-semibold">{f.name}</span>
+      <span className="flex items-center gap-1.5 text-xs" style={{ color: c ? col : undefined }}>
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: col }} aria-hidden />
+        {c ? `${c.label === "Neutral" ? "Mixed" : c.label.replace("-", " ")} · ${Math.round(c.score)}` : "…"}
+      </span>
+    </button>
+  );
+}
+
+function Tile({ t, period }: { t: any; period: string }) {
   const chg = t.change_bps ?? t.change_1d_pct;
   const dp = t.unit === "%" ? 2 : t.symbol === "VIX" ? 2 : t.price >= 1000 ? 0 : t.price >= 100 ? 2 : 4;
   return (
     <div className="min-w-0 rounded-lg border border-line bg-panel-2/60 px-3 py-3" title={t.source ? `Source: ${t.source}` : undefined}>
       <div className="truncate text-base font-bold tracking-tight sm:text-lg">{t.label}</div>
-      <div className="mt-1 grid grid-cols-2 gap-2 text-[0.7rem] text-muted"><span>{t.unit === "%" ? "Yield" : "Price"}</span><span>1-day</span></div>
+      <div className="mt-1 grid grid-cols-2 gap-2 text-[0.7rem] text-muted"><span>{t.unit === "%" ? "Yield" : "Price"}</span><span>{period}</span></div>
       <div className="grid grid-cols-2 gap-2 text-base tabular-nums sm:text-lg">
         <span>{t.price.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}{t.unit || ""}</span>
         <span className={chg == null ? "text-muted" : chg < 0 ? "text-[#ff7b7b]" : "text-[#9ccc65]"}>
@@ -122,15 +147,19 @@ function EvalBox({ title, items, colour, moves }: { title: string; items: string
 }
 
 export default function RiskSentiment() {
-  const { data, error, loading } = useApi<any>("/api/macro/risk");
+  const [frame, setFrame] = useState<Frame>(FRAMES[0]);
+  const { data, error, loading } = useApi<any>(`/api/macro/risk?horizon=${frame.key}`);
   const c = data?.current;
   const ev = data?.evaluation;
   const biasColour = c?.label === "Risk-On" ? "text-[#9ccc65]" : c?.label === "Risk-Off" ? "text-[#ff7b7b]" : "text-muted";
   return (
-    <Panel title="Daily Risk ON / Risk OFF">
+    <Panel title={`${frame.name} Risk ON / Risk OFF`}>
+      <div role="tablist" aria-label="Time frame" className="mb-5 flex gap-2">
+        {FRAMES.map((f) => <FrameTab key={f.key} f={f} active={frame.key === f.key} onClick={() => setFrame(f)} />)}
+      </div>
       <ErrorBox error={error} />
       {data?.tiles?.length > 0 && (
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">{data.tiles.map((t: any) => <Tile key={t.symbol} t={t} />)}</div>
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">{data.tiles.map((t: any) => <Tile key={t.symbol} t={t} period={frame.period} />)}</div>
       )}
       {loading && !data ? <Loading /> : !c || c.score === null ? (
         <Empty href="/data-health" cta="Open Data health">No risk reading yet. It is worked out from daily FRED data (VIX, credit spreads, S&amp;P 500, FX).
@@ -139,18 +168,18 @@ export default function RiskSentiment() {
         <>
           <div className="grid gap-6 lg:grid-cols-[22rem_1fr]">
             <div className="flex flex-col items-center">
-              <h3 className="mb-2 self-start text-2xl font-medium sm:text-3xl">Daily Bias: <span className={biasColour}>{ev?.bias}</span></h3>
+              <h3 className="mb-2 self-start text-2xl font-medium sm:text-3xl">{frame.name} Bias: <span className={biasColour}>{ev?.bias}</span></h3>
               <RiskDial score={c.score} on={data.thresholds.risk_on} off={data.thresholds.risk_off} />
-              <p className="mt-1 text-center text-xs text-muted">Score out of 100. Market data up to {shortDate(c.data_date)};
+              <p className="mt-1 text-center text-xs text-muted">Score out of 100 ({frame.explain}). Market data up to {shortDate(c.data_date)};
                 {" "}{Math.round(c.coverage * 100)}% of signals available.</p>
             </div>
             <div className="min-w-0">
-              <h3 className="mb-3 text-center text-2xl font-medium sm:text-3xl lg:mt-1">Daily Evaluation</h3>
+              <h3 className="mb-3 text-center text-2xl font-medium sm:text-3xl lg:mt-1">{frame.name} Evaluation</h3>
               <div className="grid grid-cols-2 gap-1">
-                <EvalBox title="Bullish/D" items={ev?.bullish || []} colour={GREEN} moves={ev?.moves || {}} />
-                <EvalBox title="Bearish/D" items={ev?.bearish || []} colour={RED} moves={ev?.moves || {}} />
+                <EvalBox title={`Bullish/${frame.short}`} items={ev?.bullish || []} colour={GREEN} moves={ev?.moves || {}} />
+                <EvalBox title={`Bearish/${frame.short}`} items={ev?.bearish || []} colour={RED} moves={ev?.moves || {}} />
               </div>
-              {ev?.basis && <p className="mt-2 text-xs text-muted">{ev.basis} Brackets show the 1-day change: currencies against the US dollar (USD against
+              {ev?.basis && <p className="mt-2 text-xs text-muted">{ev.basis} Brackets show the {frame.period} change: currencies against the US dollar (USD against
                 the others), US bonds as the 10-year yield (yield up = bond prices down).</p>}
             </div>
           </div>

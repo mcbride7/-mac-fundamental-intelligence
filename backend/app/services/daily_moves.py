@@ -21,10 +21,16 @@ FRED_FALLBACK = {"USDJPY": "usdjpy", "USDCHF": "usdchf", "AUDUSD": "audusd", "US
                  "USDMXN": "usdmxn", "SPX": "spx", "XAUUSD": "gold"}
 
 
-def _last_two(db: Session, name: str) -> tuple[float, float] | None:
+# how many market days back each time frame compares with
+LOOKBACK = {"daily": 1, "weekly": 5, "monthly": 21}
+OVERVIEW_KEY = {1: "change_1d_pct", 5: "change_1w_pct", 21: "change_1m_pct"}
+
+
+def _last_two(db: Session, name: str, back: int = 1) -> tuple[float, float] | None:
+    """(value `back` market days ago, latest value) from the stored FRED daily series."""
     rows = list(db.scalars(select(IndicatorObservation).where(IndicatorObservation.series == "RISK:" + name)
-                           .order_by(IndicatorObservation.obs_date.desc()).limit(2)))
-    return (rows[1].value, rows[0].value) if len(rows) == 2 else None
+                           .order_by(IndicatorObservation.obs_date.desc()).limit(back + 1)))
+    return (rows[back].value, rows[0].value) if len(rows) == back + 1 else None
 
 
 def _pct(pair: tuple[float, float] | None) -> float | None:
@@ -33,35 +39,37 @@ def _pct(pair: tuple[float, float] | None) -> float | None:
     return round((pair[1] / pair[0] - 1) * 100, 3)
 
 
-def symbol_changes(db: Session) -> dict[str, dict]:
-    """symbol -> {price, change_pct, source}, Twelve Data first, FRED daily as fallback."""
+def symbol_changes(db: Session, back: int = 1) -> dict[str, dict]:
+    """symbol -> {price, change_pct, source} over `back` market days (1, 5 or 21),
+    Twelve Data first, FRED daily as fallback."""
     from app.engines.market_engine import markets_overview
 
+    key = OVERVIEW_KEY.get(back, "change_1d_pct")
     out = {}
     for m in markets_overview(db):
-        if m.get("price") is not None and m.get("change_1d_pct") is not None:
-            out[m["symbol"]] = {"price": m["price"], "change_pct": m["change_1d_pct"], "source": m.get("source")}
+        if m.get("price") is not None and m.get(key) is not None:
+            out[m["symbol"]] = {"price": m["price"], "change_pct": m[key], "source": m.get("source")}
     for sym, name in FRED_FALLBACK.items():
         if sym not in out:
-            two = _last_two(db, name)
+            two = _last_two(db, name, back)
             if two:
                 out[sym] = {"price": two[1], "change_pct": _pct(two), "source": "FRED (daily)"}
     return out
 
 
-def ten_year(db: Session) -> dict | None:
-    two = _last_two(db, "us10y")
+def ten_year(db: Session, back: int = 1) -> dict | None:
+    two = _last_two(db, "us10y", back)
     if two is None:
         ys = list(db.scalars(select(BondYield).where(BondYield.country == "US", BondYield.tenor == "10Y")
-                            .order_by(BondYield.ts.desc()).limit(2)))
-        two = (ys[1].yield_pct, ys[0].yield_pct) if len(ys) == 2 else None
+                            .order_by(BondYield.ts.desc()).limit(back + 1)))
+        two = (ys[back].yield_pct, ys[0].yield_pct) if len(ys) == back + 1 else None
     if two is None:
         return None
     return {"yield": two[1], "change_bps": round((two[1] - two[0]) * 100, 1)}
 
 
-def daily_moves(db: Session) -> dict[str, dict]:
-    sym = symbol_changes(db)
+def daily_moves(db: Session, back: int = 1) -> dict[str, dict]:
+    sym = symbol_changes(db, back)
     out: dict[str, dict] = {}
     for ccy, (s, sign) in VS_USD.items():
         if s in sym:
@@ -72,10 +80,10 @@ def daily_moves(db: Session) -> dict[str, dict]:
     for name, s in (("GOLD", "XAUUSD"), ("SPX500", "SPX"), ("BTC", "BTCUSD")):
         if s in sym:
             out[name] = {"change_pct": sym[s]["change_pct"]}
-    vix = _last_two(db, "vix")
+    vix = _last_two(db, "vix", back)
     if vix:
         out["VIX"] = {"change_pct": _pct(vix), "level": vix[1]}
-    ty = ten_year(db)
+    ty = ten_year(db, back)
     if ty:
         out["BONDS"] = {"change_bps": ty["change_bps"], "yield": ty["yield"]}
     return out

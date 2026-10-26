@@ -119,3 +119,31 @@ def run_risk(db: Session, src: Source) -> int:
                                 + ("First error: " + failed[0] if failed else ""))
     recompute.trigger(db, "market_data", None)  # the macro regime and currency scores use the risk mood
     return n
+
+
+def load_dated(db: Session) -> dict[str, list[tuple]]:
+    out = {}
+    for name in list(FRED_SERIES) + ["gold"]:
+        out[name] = list(db.execute(select(IndicatorObservation.obs_date, IndicatorObservation.value)
+                                    .where(IndicatorObservation.series == PREFIX + name)
+                                    .order_by(IndicatorObservation.obs_date)))
+    return out
+
+
+def reading(db: Session, horizon: str = "daily", history_days: int = 120) -> dict:
+    """The score for one time frame, worked out from the stored daily series, plus its history
+    (one point per market day, each using only the data known on that day)."""
+    dated = load_dated(db)
+    series = {k: [v for _, v in rows] for k, rows in dated.items()}
+    res = rk.evaluate(series, horizon)
+    anchor = [d for d, _ in dated.get("vix") or dated.get("spx") or []]
+    latest = anchor[-1].isoformat() if anchor else None
+    history = []
+    for d in anchor[-history_days:]:
+        cut = {k: [v for dd, v in rows if dd <= d] for k, rows in dated.items()}
+        r = rk.evaluate(cut, horizon)
+        if r.score is not None:
+            history.append({"date": d.isoformat(), "score": r.score, "label": r.label})
+    return {"horizon": horizon, "score": res.score, "label": res.label, "data_date": latest,
+            "coverage": res.coverage, "divergence": res.divergence, "notes": res.notes, "missing": res.missing,
+            "components": [c.__dict__ for c in res.components], "history": history}

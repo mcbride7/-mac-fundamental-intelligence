@@ -26,7 +26,15 @@ LABELS = {"vix": "VIX (fear index)", "credit": "High-yield credit spreads", "equ
           "audjpy": "AUD/JPY", "safe_havens": "Safe havens (JPY, CHF)", "em_fx": "Emerging-market FX (ZAR, MXN)",
           "gold_vs_stocks": "Gold vs stocks", "bonds": "Bonds and stocks"}
 RISK_ON, RISK_OFF = 60.0, 40.0
-YEAR, TREND, MOVE = 252, 50, 20
+YEAR = 252
+# Time frames. move = days for price changes, trend = days for the S&P 500 average,
+# level = days averaged for VIX and credit spreads (vs their past year).
+# Bigger windows produce bigger moves, so the scale grows with the square root of the window.
+HORIZONS = {
+    "daily": {"move": 5, "trend": 20, "level": 1, "label": "Daily"},
+    "weekly": {"move": 20, "trend": 50, "level": 5, "label": "Weekly"},
+    "monthly": {"move": 60, "trend": 100, "level": 21, "label": "Monthly"},
+}
 
 
 @dataclass
@@ -59,20 +67,27 @@ def _pct_change(vals: list[float], n: int) -> float | None:
     return (vals[-1] / vals[-1 - n] - 1) * 100
 
 
-def _z_vs_year(vals: list[float]) -> float | None:
+def _z_vs_year(vals: list[float], level: int = 1) -> float | None:
     hist = vals[-YEAR:]
     if len(hist) < 60:
         return None
     sd = statistics.pstdev(hist)
     if sd == 0:
         return None
-    return (vals[-1] - statistics.fmean(hist)) / sd
+    now = statistics.fmean(vals[-level:])
+    return (now - statistics.fmean(hist)) / sd
 
 
-def evaluate(series: dict[str, list[float]]) -> RiskResult:
+def evaluate(series: dict[str, list[float]], horizon: str = "daily") -> RiskResult:
     """`series`: daily values, oldest first, keyed vix, hy_oas, spx, usdjpy, usdchf, audusd, usdzar, usdmxn,
-    gold, us10y. Any may be missing or short."""
-    s = {k: [v for v in vals if v is not None] for k, vals in series.items()}
+    gold, us10y. Any may be missing or short. `horizon`: daily, weekly or monthly (see HORIZONS)."""
+    h = HORIZONS[horizon]
+    MOVE, TREND, LEVEL = h["move"], h["trend"], h["level"]
+    k = (MOVE / 20) ** 0.5          # move scale vs the 20-day reference
+    kt = (TREND / 50) ** 0.5        # trend scale vs the 50-day reference
+    days = f"{MOVE} days"
+    lvl = "" if LEVEL == 1 else f" ({LEVEL}-day average)"
+    s = {k_: [v for v in vals if v is not None] for k_, vals in series.items()}
     comps: list[Component] = []
 
     def add(key: str, score: float | None, reading: str):
@@ -80,41 +95,41 @@ def evaluate(series: dict[str, list[float]]) -> RiskResult:
             comps.append(Component(key, LABELS[key], round(_clamp(score), 1), reading, WEIGHTS[key]))
 
     vix = s.get("vix", [])
-    z = _z_vs_year(vix)
+    z = _z_vs_year(vix, LEVEL)
     if z is not None:
-        add("vix", -z / 2.0 * 100, f"VIX {vix[-1]:.1f} ({z:+.1f} standard deviations vs its past year)")
+        add("vix", -z / 2.0 * 100, f"VIX {statistics.fmean(vix[-LEVEL:]):.1f}{lvl}, {z:+.1f} standard deviations vs its past year")
     oas = s.get("hy_oas", [])
-    z = _z_vs_year(oas)
+    z = _z_vs_year(oas, LEVEL)
     if z is not None:
-        add("credit", -z / 2.0 * 100, f"Spread {oas[-1]:.2f}% ({z:+.1f} standard deviations vs its past year)")
+        add("credit", -z / 2.0 * 100, f"Spread {statistics.fmean(oas[-LEVEL:]):.2f}%{lvl}, {z:+.1f} standard deviations vs its past year")
     spx = s.get("spx", [])
     if len(spx) >= TREND:
         ma = statistics.fmean(spx[-TREND:])
         gap = (spx[-1] / ma - 1) * 100
-        add("equities", gap / 5 * 100, f"S&P 500 {gap:+.1f}% vs its 50-day average")
+        add("equities", gap / (5 * kt) * 100, f"S&P 500 {gap:+.1f}% vs its {TREND}-day average")
     aud, jpy = s.get("audusd", []), s.get("usdjpy", [])
     n = min(len(aud), len(jpy))
     if n > MOVE:
         cross = [a * j for a, j in zip(aud[-n:], jpy[-n:])]
         ch = _pct_change(cross, MOVE)
-        add("audjpy", ch / 3 * 100, f"AUD/JPY {cross[-1]:.2f}, {ch:+.1f}% over 20 days")
+        add("audjpy", ch / (3 * k) * 100, f"AUD/JPY {cross[-1]:.2f}, {ch:+.1f}% over {days}")
     havens = [c for c in (_pct_change(s.get("usdjpy", []), MOVE), _pct_change(s.get("usdchf", []), MOVE))
               if c is not None]
     if havens:
         strength = -statistics.fmean(havens)  # USD/JPY falling = yen stronger
-        add("safe_havens", -strength / 2 * 100, f"JPY and CHF {strength:+.1f}% vs USD over 20 days")
+        add("safe_havens", -strength / (2 * k) * 100, f"JPY and CHF {strength:+.1f}% vs USD over {days}")
     em = [c for c in (_pct_change(s.get("usdzar", []), MOVE), _pct_change(s.get("usdmxn", []), MOVE)) if c is not None]
     if em:
         strength = -statistics.fmean(em)
-        add("em_fx", strength / 3 * 100, f"ZAR and MXN {strength:+.1f}% vs USD over 20 days")
+        add("em_fx", strength / (3 * k) * 100, f"ZAR and MXN {strength:+.1f}% vs USD over {days}")
     gold = s.get("gold", [])
     sp, gd = _pct_change(spx, MOVE), _pct_change(gold, MOVE)
     if sp is not None and gd is not None:
-        add("gold_vs_stocks", (sp - gd) / 5 * 100, f"S&P 500 {sp:+.1f}% vs gold {gd:+.1f}% over 20 days")
+        add("gold_vs_stocks", (sp - gd) / (5 * k) * 100, f"S&P 500 {sp:+.1f}% vs gold {gd:+.1f}% over {days}")
     y10 = s.get("us10y", [])
     if sp is not None and len(y10) > MOVE:
         dy = (y10[-1] - y10[-1 - MOVE]) * 100
-        add("bonds", (dy / 25 + sp / 3) / 2 * 100, f"10-year yield {dy:+.0f} bp, S&P 500 {sp:+.1f}% over 20 days")
+        add("bonds", (dy / (25 * k) + sp / (3 * k)) / 2 * 100, f"10-year yield {dy:+.0f} bp, S&P 500 {sp:+.1f}% over {days}")
 
     missing = [LABELS[k] for k in WEIGHTS if k not in {c.key for c in comps}]
     total_w = sum(c.weight for c in comps)
@@ -173,7 +188,7 @@ def daily_evaluation(label: str, currency_scores: dict[str, int] | None = None) 
 PHRASES = {
     "vix": ("the VIX fear index is low", "the VIX fear index is elevated"),
     "credit": ("credit spreads are tight", "credit spreads are widening"),
-    "equities": ("the S&P 500 is above its 50-day average", "the S&P 500 is below its 50-day average"),
+    "equities": ("the S&P 500 is above its trend", "the S&P 500 is below its trend"),
     "audjpy": ("AUD/JPY is rising", "AUD/JPY is falling"),
     "safe_havens": ("the yen and franc are weakening", "the yen and franc are strengthening"),
     "em_fx": ("the rand and peso are firm", "the rand and peso are weakening"),

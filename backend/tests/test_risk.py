@@ -38,7 +38,7 @@ def test_calm_market_is_risk_on():
 
 
 def test_panic_is_risk_off():
-    r = rk.evaluate(_panic())
+    r = rk.evaluate(_panic(), "weekly")  # a 15-day sell-off: the 20-day window sees all of it
     assert r.label == "Risk-Off" and r.score <= 40
     by = {c.key: c.score for c in r.components}
     assert by["vix"] < 0 and by["credit"] < 0 and by["safe_havens"] < 0 and by["em_fx"] < 0 and by["gold_vs_stocks"] < 0
@@ -120,7 +120,7 @@ def test_daily_moves_and_tiles(client, db):
     assert abs(mv["AUD"]["change_pct"] - 0.4) < 0.01 and abs(mv["JPY"]["change_pct"] + 1.0) < 0.01
     assert abs(mv["VIX"]["change_pct"] + 10) < 0.01 and mv["BONDS"]["change_bps"] == 5.0
     assert abs(mv["SPX500"]["change_pct"] - 1.0) < 0.01 and "USD" in mv
-    assert "VIX" in d["evaluation"]["bearish"] and "BONDS" in d["evaluation"]["bearish"]
+    assert "VIX" in rk.daily_evaluation("Risk-On")["bearish"] and "BONDS" in rk.daily_evaluation("Risk-On")["bearish"]
     labels = {t["label"] for t in d["tiles"]}
     assert {"VIX", "US 10Y yield", "SPX500", "EUR/USD"} <= labels
 
@@ -136,3 +136,31 @@ def test_explain_note():
     assert m.startswith("Mixed (48/100): the yen and franc are weakening, pointing to confidence, but credit")
     assert rk.explain("Risk-On", 70, [{"key": "vix", "score": 60, "weight": 0.22}]) == \
         "Risk on (70/100) because the VIX fear index is low."
+
+
+def test_horizons_differ_and_api(client, db):
+    # a long calm year, then a sharp 3-day sell-off: daily reacts most, monthly least
+    s = _calm(320)
+    for k, f in (("vix", 1.6), ("hy_oas", 1.25)):
+        s[k][-3:] = [v * f for v in s[k][-3:]]
+    for k, f in (("spx", 0.95), ("audusd", 0.97), ("usdjpy", 0.98)):
+        s[k][-3:] = [v * f for v in s[k][-3:]]
+    d, w, m = (rk.evaluate(s, h) for h in ("daily", "weekly", "monthly"))
+    assert d.score < w.score < m.score
+    assert d.label in ("Risk-Off", "Neutral") and m.label in ("Risk-On", "Neutral")
+    assert any("5 days" in c.reading for c in d.components) and any("60 days" in c.reading for c in m.components)
+
+    from datetime import date, timedelta
+
+    from app.models import IndicatorObservation
+
+    start = date(2025, 9, 1)
+    for name, vals in s.items():
+        for i, v in enumerate(vals):
+            db.add(IndicatorObservation(series="RISK:" + name, obs_date=start + timedelta(days=i), value=v))
+    db.commit()
+    out = {h: client.get(f"/api/macro/risk?horizon={h}&days=30").json() for h in ("daily", "weekly", "monthly")}
+    assert out["daily"]["current"]["score"] < out["monthly"]["current"]["score"]
+    assert len(out["weekly"]["history"]) == 30 and out["monthly"]["current"]["why"]
+    assert out["weekly"]["evaluation"]["moves"]["VIX"]["change_pct"] != out["daily"]["evaluation"]["moves"]["VIX"]["change_pct"]
+    assert client.get("/api/macro/risk?horizon=yearly").status_code == 422
