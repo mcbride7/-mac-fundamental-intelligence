@@ -73,8 +73,7 @@ function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
           <text key={t} x={L - 6} y={y(t) + 4} fontSize="10.5" textAnchor="end" fill="currentColor" opacity="0.55">{mv(t, mode, 1)}</text>
         ))}
         {months.map((m, i) => {
-          const v = m.avg ?? 0, x0 = L + i * bw, x = x0 + bw * 0.14, w = bw * 0.46;
-          const actual = ty[i];
+          const v = m.avg ?? 0, x0 = L + i * bw, x = x0 + bw * 0.18, w = bw * 0.64;
           const top = v >= 0;
           return (
             <g key={m.month}>
@@ -85,24 +84,39 @@ function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
               {m.avg != null && (
                 <text x={x + w / 2} y={top ? y(v) - 4 : y(v) + 11} fontSize="9.5" textAnchor="middle" fill="currentColor" opacity="0.9">{label(m.avg)}</text>
               )}
-              {actual !== null && actual !== undefined && (
-                <g>
-                  <line x1={x0 + bw * 0.66} x2={x0 + bw * 0.9} y1={y(actual)} y2={y(actual)} stroke="#f2f2f2" strokeWidth="3" strokeLinecap="round" />
-                  <line x1={x0 + bw * 0.78} x2={x0 + bw * 0.78} y1={y(0)} y2={y(actual)} stroke="#f2f2f2" strokeWidth="1" opacity="0.45" />
-                  <text x={x0 + bw * 0.78} y={actual >= 0 ? y(actual) - 5 : y(actual) + 12} fontSize="9.5" textAnchor="middle"
-                    fill={actual >= 0 ? "#9ccc65" : "#ff7b7b"} fontWeight="600">{label(actual)}{i + 1 === current ? " now" : ""}</text>
-                  <title>{`${m.name} ${year}${i + 1 === current ? " so far" : ""}: ${mv(actual, mode)} (average ${mv(m.avg, mode)})`}</title>
-                </g>
-              )}
               <text x={x0 + bw / 2} y={H - 19} fontSize="11" textAnchor="middle" fill="currentColor" opacity="0.75">{m.name}</text>
               <text x={x0 + bw / 2} y={H - 6} fontSize="10" textAnchor="middle" fill="currentColor" opacity="0.55">{m.win_rate == null ? "" : `${m.win_rate}% up`}</text>
             </g>
           );
         })}
+        {(() => {
+          const pts = ty.map((v, i) => (v === null || v === undefined ? null : { i, v, x: L + i * bw + bw / 2, y: y(v) }))
+            .filter((p): p is { i: number; v: number; x: number; y: number } => p !== null);
+          if (!pts.length) return null;
+          const d = pts.map((p, k) => `${k ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+          return (
+            <g>
+              <path d={d} fill="none" stroke="#f2f2f2" strokeWidth="2.4" strokeLinejoin="round" />
+              {pts.map((p) => {
+                const now = p.i + 1 === current;
+                const above = p.v >= (months[p.i]?.avg ?? 0);
+                return (
+                  <g key={p.i}>
+                    <circle cx={p.x} cy={p.y} r={now ? 5.5 : 4} fill={p.v >= 0 ? "#9ccc65" : "#ff7b7b"} stroke="#0f1726" strokeWidth="1.5" />
+                    <text x={p.x} y={above ? p.y - 9 : p.y + 16} fontSize="10" textAnchor="middle" fontWeight="600"
+                      fill={p.v >= 0 ? "#9ccc65" : "#ff7b7b"} paintOrder="stroke" stroke="#0f1726" strokeWidth="3">
+                      {label(p.v)}{now ? " now" : ""}</text>
+                    <title>{`${MONTHS[p.i]} ${year}${now ? " so far" : ""}: ${mv(p.v, mode)} (average ${mv(months[p.i]?.avg, mode)})`}</title>
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })()}
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: GREEN }} /><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: RED }} />Average move (number on the bar)</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-[3px]" style={{ borderColor: "#f2f2f2" }} />{year} actual move (current month = so far)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "#f2f2f2" }} />{year} line: this year&rsquo;s move each month (current month = so far)</span>
         <span>Bottom row: how often the month rose</span>
       </figcaption>
     </figure>
