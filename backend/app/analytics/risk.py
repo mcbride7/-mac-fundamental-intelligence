@@ -167,3 +167,44 @@ def daily_evaluation(label: str, currency_scores: dict[str, int] | None = None) 
                 "basis": "Mixed mood: no risk tilt, so currencies are listed by their economic-data score "
                          "(Macro heatmap)."}
     return {"bias": "No data", "bullish": [], "bearish": [], "basis": ""}
+
+
+# plain-English phrases for each signal: (when it points to risk-on, when it points to risk-off)
+PHRASES = {
+    "vix": ("the VIX fear index is low", "the VIX fear index is elevated"),
+    "credit": ("credit spreads are tight", "credit spreads are widening"),
+    "equities": ("the S&P 500 is above its 50-day average", "the S&P 500 is below its 50-day average"),
+    "audjpy": ("AUD/JPY is rising", "AUD/JPY is falling"),
+    "safe_havens": ("the yen and franc are weakening", "the yen and franc are strengthening"),
+    "em_fx": ("the rand and peso are firm", "the rand and peso are weakening"),
+    "gold_vs_stocks": ("stocks are beating gold", "gold is beating stocks"),
+    "bonds": ("bond yields and stocks are rising together", "money is moving into bonds"),
+}
+NOTE_MIN = 15  # a signal must be at least this far from 0 to be mentioned
+
+
+def _join(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def explain(label: str, score: float | None, components: list[dict]) -> str:
+    """One or two sentences on why the mood is what it is, from the strongest signals."""
+    if score is None or not components:
+        return ""
+    by_strength = sorted(components, key=lambda c: -abs(c["score"]) * c.get("weight", 1))
+    on = [PHRASES[c["key"]][0] for c in by_strength if c["score"] >= NOTE_MIN and c["key"] in PHRASES]
+    off = [PHRASES[c["key"]][1] for c in by_strength if c["score"] <= -NOTE_MIN and c["key"] in PHRASES]
+    s = f"{score:.0f}/100"
+    if label == "Risk-On":
+        text = f"Risk on ({s}) because {_join(on[:3])}." if on else f"Risk on ({s}): signals lean mildly positive."
+        return text + (f" Watch: {_join(off[:2])}." if off else "")
+    if label == "Risk-Off":
+        text = f"Risk off ({s}) because {_join(off[:3])}." if off else f"Risk off ({s}): signals lean mildly negative."
+        return text + (f" On the other side, {_join(on[:2])}." if on else "")
+    if on and off:
+        return (f"Mixed ({s}): {_join(on[:2])}, pointing to confidence, but {_join(off[:2])}, pointing to "
+                "caution. No clear risk tilt.")
+    if on or off:
+        side = on or off
+        return f"Mixed ({s}): only {_join(side[:2])}; the other signals are close to neutral."
+    return f"Mixed ({s}): all signals are close to neutral."

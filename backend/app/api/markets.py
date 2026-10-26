@@ -192,7 +192,10 @@ def risk_sentiment(days: int = 120, db: Session = Depends(get_db)):
     if cur is not None and cur.label == "Neutral":
         scores = {c: sum(1 if r["currency_impact"] == "Bullish" else -1 if r["currency_impact"] == "Bearish" else 0
                          for r in hm.rows_for(db, c)) for c in hm.CURRENCIES}
-    return {"current": row(cur) | {"implication": FX_IMPLICATION.get(cur.label, "")} if cur else None,
+    from app.analytics.risk import explain
+
+    return {"current": row(cur) | {"implication": FX_IMPLICATION.get(cur.label, ""),
+                                   "why": explain(cur.label, cur.score, cur.components or [])} if cur else None,
             "history": list(daily.values()), "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF},
             "weights": WEIGHTS, "tiles": _risk_tiles(db),
             "evaluation": daily_evaluation(cur.label if cur else "No data", scores) | {"moves": daily_moves(db)}}

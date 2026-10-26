@@ -123,3 +123,16 @@ def test_daily_moves_and_tiles(client, db):
     assert "VIX" in d["evaluation"]["bearish"] and "BONDS" in d["evaluation"]["bearish"]
     labels = {t["label"] for t in d["tiles"]}
     assert {"VIX", "US 10Y yield", "SPX500", "EUR/USD"} <= labels
+
+
+def test_explain_note():
+    comps = [{"key": "credit", "score": -80, "weight": 0.2}, {"key": "audjpy", "score": -50, "weight": 0.12},
+             {"key": "em_fx", "score": -40, "weight": 0.1}, {"key": "safe_havens", "score": 35, "weight": 0.1},
+             {"key": "vix", "score": 5, "weight": 0.22}]
+    t = rk.explain("Risk-Off", 31, comps)
+    assert t.startswith("Risk off (31/100) because credit spreads are widening, AUD/JPY is falling and the rand")
+    assert "On the other side, the yen and franc are weakening." in t and "VIX" not in t
+    m = rk.explain("Neutral", 48, comps)
+    assert m.startswith("Mixed (48/100): the yen and franc are weakening, pointing to confidence, but credit")
+    assert rk.explain("Risk-On", 70, [{"key": "vix", "score": 60, "weight": 0.22}]) == \
+        "Risk on (70/100) because the VIX fear index is low."
