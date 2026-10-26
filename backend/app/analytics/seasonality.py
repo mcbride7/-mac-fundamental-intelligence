@@ -43,6 +43,13 @@ def monthly_moves(obs: list[tuple[date, float]], mode: str = "pct", today: date 
     return out
 
 
+def _stats(vals: list[float]) -> dict:
+    if not vals:
+        return {"n": 0, "avg": None, "median": None, "win_rate": None, "best": None, "worst": None}
+    return {"n": len(vals), "avg": round(statistics.fmean(vals), 3), "median": round(statistics.median(vals), 3),
+            "win_rate": round(100 * sum(1 for v in vals if v > 0) / len(vals)), "best": max(vals), "worst": min(vals)}
+
+
 def month_stats(moves: dict[tuple[int, int], float], years: int, today: date | None = None) -> list[dict]:
     """For each calendar month over the last `years` complete years: average, median, win rate, best, worst."""
     today = today or date.today()
@@ -50,14 +57,57 @@ def month_stats(moves: dict[tuple[int, int], float], years: int, today: date | N
     out = []
     for m in range(1, 13):
         vals = [v for (y, mm), v in moves.items() if mm == m and first <= y < today.year]
-        if not vals:
-            out.append({"month": m, "name": MONTHS[m - 1], "n": 0, "avg": None, "median": None, "win_rate": None,
-                        "best": None, "worst": None})
-            continue
-        out.append({"month": m, "name": MONTHS[m - 1], "n": len(vals), "avg": round(statistics.fmean(vals), 3),
-                    "median": round(statistics.median(vals), 3),
-                    "win_rate": round(100 * sum(1 for v in vals if v > 0) / len(vals)),
-                    "best": max(vals), "worst": min(vals)})
+        out.append({"month": m, "name": MONTHS[m - 1], **_stats(vals)})
+    return out
+
+
+# ---------------------------------------------------------------- weeks of the year
+
+def week_of(d: date) -> int:
+    """ISO week number, with the rare week 53 folded into week 52."""
+    return min(d.isocalendar()[1], 52)
+
+
+def week_label(w: int, year: int | None = None) -> str:
+    """'W43 (20 Oct)': the Monday the week starts on, in the given (or current) year."""
+    y = year or date.today().year
+    try:
+        start = date.fromisocalendar(y, w, 1)
+    except ValueError:
+        return f"W{w}"
+    return f"W{w} ({start.day} {MONTHS[start.month - 1]})"
+
+
+def weekly_moves(obs: list[tuple[date, float]], mode: str = "pct", today: date | None = None
+                 ) -> dict[tuple[int, int], float]:
+    """Move in each complete ISO week: last close of the week vs last close of the week before."""
+    today = today or date.today()
+    closes: dict[tuple[int, int], float] = {}
+    order: list[tuple[int, int]] = []
+    for d, v in obs:
+        iso = d.isocalendar()
+        k = (iso[0], iso[1])
+        if k not in closes:
+            order.append(k)
+        closes[k] = v
+    cur = today.isocalendar()
+    out = {}
+    for prev, k in zip(order[:-1], order[1:]):
+        if k == (cur[0], cur[1]):
+            continue  # week not finished
+        mv = _move(closes[prev], closes[k], mode)
+        if mv is not None:
+            out[(k[0], min(k[1], 52))] = mv
+    return out
+
+
+def week_stats(moves: dict[tuple[int, int], float], years: int, today: date | None = None) -> list[dict]:
+    today = today or date.today()
+    first = today.isocalendar()[0] - years
+    out = []
+    for w in range(1, 53):
+        vals = [v for (y, ww), v in moves.items() if ww == w and first <= y < today.isocalendar()[0]]
+        out.append({"week": w, "name": week_label(w, today.year), **_stats(vals)})
     return out
 
 
@@ -108,7 +158,15 @@ def seasonal_path(obs: list[tuple[date, float]], years: int, mode: str = "pct", 
         vals = [p[i] for p in hist if i < len(p) and p[i] is not None]
         avg.append(round(statistics.fmean(vals), 3) if vals else None)
     cur = path(today.year, (today - date(today.year, 1, 1)).days)
-    return {"step_days": step, "average": avg, "current": cur, "years_used": len(hist)}
+    base = _value_on(obs, idx, date(today.year - 1, 12, 31))
+    dates = [(date(today.year, 1, 1) + timedelta(days=i * step)).isoformat() for i in range(n)]
+    # where price stands against its seasonal path today
+    at = len([c for c in cur]) - 1
+    gap = None
+    if at >= 0 and at < len(avg) and cur and cur[-1] is not None and avg[at] is not None:
+        gap = round(cur[-1] - avg[at], 3)
+    return {"step_days": step, "average": avg, "current": cur, "years_used": len(hist), "dates": dates,
+            "base": base, "today_index": at, "gap_vs_average": gap}
 
 
 def forward_window(obs: list[tuple[date, float]], years: int, days: int = 30, mode: str = "pct",
@@ -132,6 +190,13 @@ def forward_window(obs: list[tuple[date, float]], years: int, days: int = 30, mo
     return {"days": days, "n": len(vals), "avg": round(statistics.fmean(vals), 3),
             "median": round(statistics.median(vals), 3),
             "win_rate": round(100 * sum(1 for v in vals if v > 0) / len(vals))}
+
+
+def to_price(base: float, move: float | None, mode: str) -> float | None:
+    """Turn a move since the start of the year back into a price (or yield)."""
+    if move is None or base is None:
+        return None
+    return round(base + move / 100, 4) if mode == "bp" else round(base * (1 + move / 100), 6)
 
 
 def bias(stat: dict | None, min_n: int = 5) -> str:

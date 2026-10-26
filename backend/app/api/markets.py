@@ -223,11 +223,14 @@ def _risk_tiles(db: Session, back: int = 1) -> list[dict]:
 
 
 @router.get("/seasonality")
-def seasonality_overview(years: int = 10, db: Session = Depends(get_db)):
-    """Average move and win rate for every asset in every calendar month, plus this and next month's leaders."""
+def seasonality_overview(years: int = 10, view: str = "monthly", db: Session = Depends(get_db)):
+    """Average move and win rate for every asset by calendar month (view=monthly) or for the next four weeks
+    (view=weekly), plus the seasonal leaders."""
     from app.services import seasonality as ss
 
-    return ss.overview(db, max(3, min(years, 25)))
+    if view not in ("monthly", "weekly"):
+        raise HTTPException(422, "view must be monthly or weekly")
+    return ss.overview(db, max(3, min(years, 25)), view=view)
 
 
 @router.get("/seasonality/{key}")

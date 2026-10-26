@@ -58,3 +58,21 @@ def test_api_overview_and_asset(client, db):
     assert a["months"][11]["n"] == 5 and a["path"] and a["next_30"] and a["grid"][0]["year"] == date.today().year
     assert client.get("/api/seasonality/US10Y").json()["mode"] == "bp"
     assert client.get("/api/seasonality/NOPE").status_code == 404
+
+
+def test_weekly_stats_and_price_chart(client, db):
+    obs = _history()
+    wm = sx.weekly_moves(obs, "pct", TODAY)
+    ws = sx.week_stats(wm, 10, TODAY)
+    assert len(ws) == 52 and ws[50]["win_rate"] == 100 and ws[37]["win_rate"] == 0  # mid-Dec up, mid-Sep down
+    assert ws[0]["name"].startswith("W1 (")
+    ss._store(db, "XAUUSD", obs)
+    a = client.get("/api/seasonality/XAUUSD?years=10").json()
+    assert len(a["weeks"]) == 52 and a["this_week"]["week"] == a["week_now"]
+    pc = a["price_chart"]
+    assert pc and len(pc["seasonal"]) == len(pc["dates"]) and pc["actual"][-1] is not None
+    assert pc["projection"][pc["today_index"]] == pc["latest"] and "seasonal path" in pc["note"]
+    w = client.get("/api/seasonality?years=10&view=weekly").json()
+    gold = next(x for x in w["assets"] if x["key"] == "XAUUSD")
+    assert w["view"] == "weekly" and len(gold["weeks"]) == 4 and len(w["columns"]) == 4
+    assert client.get("/api/seasonality?view=daily").status_code == 422

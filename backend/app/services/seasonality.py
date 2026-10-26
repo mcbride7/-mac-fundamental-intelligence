@@ -144,26 +144,75 @@ def asset_view(db: Session, key: str, years: int = 10, today: date | None = None
         return base | {"months": [], "grid": [], "path": None, "next_30": None, "this_month": None, "next_month": None}
     moves = sx.monthly_moves(obs, mode, today)
     stats = sx.month_stats(moves, years, today)
-    for s in stats:
-        s["bias"] = sx.bias(s)
+    for st in stats:
+        st["bias"] = sx.bias(st)
     nm = today.month % 12 + 1
     daily = len(obs) > 400 and (obs[-1][0] - obs[-200][0]).days < 400
     ytd_base = next((v for d, v in reversed(obs) if d.year < today.year), None)
     ytd = sx._move(ytd_base, obs[-1][1], mode) if ytd_base else None
     mtd_base = next((v for d, v in reversed(obs) if (d.year, d.month) < (today.year, today.month)), None)
     mtd = sx._move(mtd_base, obs[-1][1], mode) if mtd_base else None
+    weeks, this_week, next_week = [], None, None
+    if daily:
+        weeks = sx.week_stats(sx.weekly_moves(obs, mode, today), years, today)
+        for st in weeks:
+            st["bias"] = sx.bias(st)
+        w = sx.week_of(today)
+        this_week, next_week = weeks[w - 1], weeks[w % 52]
+    path = sx.seasonal_path(obs, years, mode, today) if daily else None
     return base | {
         "years": years, "months": stats, "grid": sx.year_grid(moves, years, today),
-        "path": sx.seasonal_path(obs, years, mode, today) if daily else None,
+        "path": path, "price_chart": price_chart(path, obs, mode) if path else None,
         "next_30": sx.forward_window(obs, years, 30, mode, today) if daily else None,
         "this_month": stats[today.month - 1], "next_month": stats[nm - 1],
+        "weeks": weeks, "this_week": this_week, "next_week": next_week, "week_now": sx.week_of(today),
         "latest": obs[-1][1], "month_to_date": mtd, "year_to_date": ytd,
     }
 
 
-def overview(db: Session, years: int = 10, today: date | None = None) -> dict:
-    """Every asset by month, plus the strongest and weakest seasonal tendencies for this month and next."""
+def price_chart(path: dict, obs: list, mode: str) -> dict | None:
+    """Actual price this year against the price the seasonal pattern implies, plus where the pattern points
+    from today's price to the end of the year."""
+    base, avg, cur = path.get("base"), path["average"], path["current"]
+    if base is None or not avg:
+        return None
+    seasonal = [sx.to_price(base, v, mode) for v in avg]
+    actual = [sx.to_price(base, v, mode) for v in cur]
+    at = path["today_index"]
+    now = obs[-1][1]
+    proj: list[float | None] = [None] * len(avg)
+    if 0 <= at < len(avg) and avg[at] is not None:
+        for i in range(at, len(avg)):
+            if avg[i] is None:
+                continue
+            if mode == "bp":
+                proj[i] = round(now + (avg[i] - avg[at]) / 100, 4)
+            else:
+                proj[i] = round(now * (1 + avg[i] / 100) / (1 + avg[at] / 100), 6)
+    gap = path.get("gap_vs_average")
+    ahead = None
+    if proj[-1] is not None:
+        ahead = round((proj[-1] - now) * 100, 1) if mode == "bp" else round((proj[-1] / now - 1) * 100, 2)
+    unit = " bp" if mode == "bp" else "%"
+    if gap is None:
+        note = ""
+    else:
+        side = "above" if gap > 0 else "below" if gap < 0 else "in line with"
+        size = "" if gap == 0 else f"{abs(gap):.{0 if mode == 'bp' else 1}f}{unit} "
+        note = f"Price is {size}{side} its seasonal path for this time of year."
+        if ahead is not None:
+            way = "up" if ahead > 0 else "down" if ahead < 0 else "flat"
+            note += f" The seasonal pattern points {way} {abs(ahead):.{0 if mode == 'bp' else 1}f}{unit} from here to the end of the year."
+    return {"dates": path["dates"], "seasonal": seasonal, "actual": actual, "projection": proj, "today_index": at,
+            "latest": now, "gap": gap, "ahead_to_year_end": ahead, "note": note}
+
+
+def overview(db: Session, years: int = 10, today: date | None = None, view: str = "monthly") -> dict:
+    """Every asset by month (or the next 4 weeks), plus the strongest and weakest seasonal tendencies for
+    this month and next (or this week and next)."""
     today = today or date.today()
+    if view == "weekly":
+        return weekly_overview(db, years, today)
     ck = (years, today.isoformat(), _latest_marker(db))
     if ck in _CACHE:
         return _CACHE[ck]
@@ -188,9 +237,51 @@ def overview(db: Session, years: int = 10, today: date | None = None) -> dict:
         return {"month": m, "name": sx.MONTHS[m - 1], "bullish": [pack(c) for c in bull[:8]],
                 "bearish": [pack(c) for c in bear[:8]]}
 
-    out = {"years": years, "today": today.isoformat(), "groups": GROUPS, "assets": rows,
+    out = {"view": "monthly", "years": years, "today": today.isoformat(), "groups": GROUPS, "assets": rows,
            "this_month": leaders(today.month), "next_month": leaders(today.month % 12 + 1),
            "lookbacks": list(LOOKBACKS)}
+    _CACHE.clear()
+    _CACHE[ck] = out
+    return out
+
+
+def weekly_overview(db: Session, years: int = 10, today: date | None = None) -> dict:
+    today = today or date.today()
+    ck = ("weekly", years, today.isoformat(), _latest_marker(db))
+    if ck in _CACHE:
+        return _CACHE[ck]
+    w0 = sx.week_of(today)
+    wanted = [(w0 - 1 + i) % 52 + 1 for i in range(4)]
+    rows = []
+    for key, (name, group, _, _, mode, note) in ASSETS.items():
+        obs = _obs(db, key)
+        daily = len(obs) > 400 and (obs[-1][0] - obs[-200][0]).days < 400
+        if not daily:
+            rows.append({"key": key, "name": name, "group": group, "mode": mode, "note": note, "weeks": [],
+                         "daily": False})
+            continue
+        stats = sx.week_stats(sx.weekly_moves(obs, mode, today), years, today)
+        picked = []
+        for w in wanted:
+            st = stats[w - 1]
+            st["bias"] = sx.bias(st)
+            picked.append(st)
+        rows.append({"key": key, "name": name, "group": group, "mode": mode, "note": note, "weeks": picked,
+                     "daily": True})
+
+    def leaders(i: int) -> dict:
+        w = wanted[i]
+        cands = [(r, r["weeks"][i]) for r in rows if r["weeks"] and r["weeks"][i]["n"] >= 5]
+        bull = sorted([c for c in cands if c[1]["bias"] == "Bullish"], key=lambda c: (-c[1]["win_rate"], -c[1]["avg"]))
+        bear = sorted([c for c in cands if c[1]["bias"] == "Bearish"], key=lambda c: (c[1]["win_rate"], c[1]["avg"]))
+        pack = lambda c: {**c[1], "period_name": c[1]["name"], "key": c[0]["key"], "name": c[0]["name"],  # noqa: E731
+                          "mode": c[0]["mode"]}
+        return {"week": w, "name": sx.week_label(w, today.year), "bullish": [pack(c) for c in bull[:8]],
+                "bearish": [pack(c) for c in bear[:8]]}
+
+    out = {"view": "weekly", "years": years, "today": today.isoformat(), "groups": GROUPS, "assets": rows,
+           "columns": [sx.week_label(w, today.year) for w in wanted], "week_now": w0,
+           "this_week": leaders(0), "next_week": leaders(1), "lookbacks": list(LOOKBACKS)}
     _CACHE.clear()
     _CACHE[ck] = out
     return out
