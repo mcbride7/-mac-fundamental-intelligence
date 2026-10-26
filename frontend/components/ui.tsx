@@ -1,21 +1,55 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-export function Panel({ title, action, children, className = "" }: {
+/** Remembered open / minimised state for a collapsible block (per browser). */
+export function useCollapsed(id?: string, startCollapsed = false): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(startCollapsed);
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const v = localStorage.getItem(`collapse:${id}`);
+      if (v !== null) setCollapsed(v === "1");
+    } catch { /* storage unavailable */ }
+  }, [id]);
+  const toggle = () => setCollapsed((c) => {
+    try { if (id) localStorage.setItem(`collapse:${id}`, c ? "0" : "1"); } catch { /* ignore */ }
+    return !c;
+  });
+  return [collapsed, toggle];
+}
+
+export function CollapseButton({ collapsed, onClick, label }: { collapsed: boolean; onClick: () => void; label: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-expanded={!collapsed} title={collapsed ? `Show ${label}` : `Minimise ${label}`}
+      className="rounded border border-line px-2 py-0.5 text-xs text-muted hover:bg-panel-2 hover:text-text">
+      {collapsed ? "▸ Show" : "▾ Minimise"}
+    </button>
+  );
+}
+
+export function Panel({ title, action, children, className = "", collapseId, startCollapsed }: {
   title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string;
+  /** give a panel an id to let it be minimised (remembered per browser) */
+  collapseId?: string; startCollapsed?: boolean;
 }) {
+  const [collapsed, toggle] = useCollapsed(collapseId, startCollapsed);
+  const hidden = !!collapseId && collapsed;
   return (
     <section className={`min-w-0 rounded-md border border-line bg-panel ${className}`}>
-      {(title || action) && (
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+      {(title || action || collapseId) && (
+        <header className={`flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 ${hidden ? "" : "border-b border-line"}`}>
           <h2 className="text-[0.95rem] font-medium">{title}</h2>
-          {action}
+          <div className="flex items-center gap-3">
+            {!hidden && action}
+            {collapseId && <CollapseButton collapsed={collapsed} onClick={toggle} label={typeof title === "string" ? title : "section"} />}
+          </div>
         </header>
       )}
       {/* wide tables scroll sideways inside the panel instead of stretching the page on phones */}
-      <div className="overflow-x-auto p-4">{children}</div>
+      {!hidden && <div className="overflow-x-auto p-4">{children}</div>}
     </section>
   );
 }

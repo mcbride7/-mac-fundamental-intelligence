@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import CurrencyMatrix from "@/components/CurrencyMatrix";
+import SetupsTable from "@/components/SetupsTable";
 import TopSetups from "@/components/TopSetups";
 import { Disclaimer, Empty, ErrorBox, GradeBadge, Loading, Panel, PolicyDial, StatusBadge } from "@/components/ui";
 import { useApi } from "@/lib/api";
@@ -16,12 +17,26 @@ export default function Home() {
   const r = d.regime;
   return (
     <div className="space-y-6">
-      <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+      <section aria-labelledby="top-setups" className="min-w-0 rounded-md border border-line bg-panel p-4">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <h1 id="top-setups" className="text-2xl font-semibold">Top setups</h1>
+          <Link href="/setups" className="text-sm text-verify">Five-pillar cards and how the scores work</Link>
+        </div>
+        <p className="mb-3 text-sm text-muted">Trend, seasonality, COT and crowd sentiment, plus central bank tone, rate expectations and every economic release: each scored −2 to +2 and added up. Strongest first.</p>
+        <SetupsTable limit={20} />
+      </section>
+
+      <Panel title="Setup cards (five-pillar view)" collapseId="home-setup-cards" startCollapsed>
+        <TopSetups limit={6} />
+      </Panel>
+
+      <Panel title="Macro picture" collapseId="home-macro-picture">
+        <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div>
           <p className="text-sm text-muted">Global macro regime{r ? `, ${dateTime(r.as_of)}` : ""}</p>
-          <h1 className="mt-1 font-serif text-3xl leading-tight sm:text-4xl">
+          <p className="mt-1 font-serif text-3xl leading-tight sm:text-4xl">
             {r ? r.primary.toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase()) : "Not enough data yet"}
-          </h1>
+          </p>
           {r && (
             <p className="mt-1 text-sm text-muted">
               {r.secondary ? `${r.secondary.toLowerCase()}, ` : ""}confidence {num(r.confidence, 0)}%
@@ -29,7 +44,7 @@ export default function Home() {
           )}
           <p className="note mt-4 text-[1.02rem]">{d.ai_summary}</p>
         </div>
-        <Panel title="Data health" action={<Link href="/data-health" className="text-sm text-verify">Open</Link>}>
+        <Panel title="Data health" collapseId="home-data-health" action={<Link href="/data-health" className="text-sm text-verify">Open</Link>}>
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <div><dt className="text-muted">Status</dt><dd className="font-medium">{d.data_health.overall}</dd></div>
             <div><dt className="text-muted">Missing releases</dt><dd>{d.data_health.missing_scheduled}</dd></div>
@@ -44,18 +59,12 @@ export default function Home() {
             </Link>
           )}
         </Panel>
-      </section>
-
-      <section aria-labelledby="top-setups">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="top-setups" className="text-xl font-semibold">Top setups</h2>
-          <Link href="/setups" className="text-sm text-verify">All setups and how they&rsquo;re scored</Link>
         </div>
-        <p className="mb-3 text-sm text-muted">Central bank and rate expectations, economic data and inflation, COT positioning, seasonality and retail sentiment, combined. Strongest first.</p>
-        <TopSetups limit={6} />
-      </section>
+      </Panel>
 
-      <Panel title="Central banks" action={<Link href="/central-banks" className="text-sm text-verify">All banks</Link>}>
+
+
+      <Panel title="Central banks" collapseId="home-central-banks" action={<Link href="/central-banks" className="text-sm text-verify">All banks</Link>}>
         <div className="overflow-x-auto">
           <table className="grid-table">
             <thead><tr><th>Bank</th><th>Policy bias</th><th className="w-48">Hawkish / dovish</th><th>Shift</th>
@@ -79,7 +88,7 @@ export default function Home() {
       </Panel>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="Fundamental setups (rates and macro only)" action={<Link href="/analysis" className="text-sm text-verify">All assets</Link>}>
+        <Panel title="Fundamental setups (rates and macro only)" collapseId="home-fundamental-setups-rates-and-macro-only" action={<Link href="/analysis" className="text-sm text-verify">All assets</Link>}>
           {d.top_setups.length === 0 ? <Empty>No setups computed yet.</Empty> : (
             <table className="grid-table">
               <thead><tr><th>Asset</th><th>Grade</th><th>Direction</th><th>Confluence</th><th>Driver / reason</th></tr></thead>
@@ -97,13 +106,13 @@ export default function Home() {
             </table>
           )}
         </Panel>
-        <Panel title="Currency strength" action={<Link href="/currencies" className="text-sm text-verify">Scores</Link>}>
+        <Panel title="Currency strength" collapseId="home-currency-strength" action={<Link href="/currencies" className="text-sm text-verify">Scores</Link>}>
           <CurrencyMatrix heatmap={d.currency_strength} compact />
         </Panel>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <Panel title="Biggest economic surprises">
+        <Panel title="Biggest economic surprises" collapseId="home-biggest-economic-surprises">
           {d.biggest_surprises.length === 0 ? <Empty href="/data-input" cta="Add a release">No releases with a forecast yet.</Empty> : (
             <ul className="space-y-2 text-sm">
               {d.biggest_surprises.map((s: any) => (
@@ -121,7 +130,7 @@ export default function Home() {
             </ul>
           )}
         </Panel>
-        <Panel title="Central-bank forecast misses">
+        <Panel title="Central-bank forecast misses" collapseId="home-central-bank-forecast-misses">
           {d.forecast_errors.length === 0 ? <Empty>No projections compared yet.</Empty> : (
             <ul className="space-y-2 text-sm">
               {d.forecast_errors.map((e: any, i: number) => (
@@ -134,7 +143,7 @@ export default function Home() {
             </ul>
           )}
         </Panel>
-        <Panel title="Latest alerts" action={<Link href="/alerts" className="text-sm text-verify">All</Link>}>
+        <Panel title="Latest alerts" collapseId="home-latest-alerts" action={<Link href="/alerts" className="text-sm text-verify">All</Link>}>
           {d.alerts.length === 0 ? <Empty>No alerts.</Empty> : (
             <ul className="space-y-2.5 text-sm">
               {d.alerts.map((a: any) => (
@@ -149,7 +158,7 @@ export default function Home() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="Rates and market pricing">
+        <Panel title="Rates and market pricing" collapseId="home-rates-and-market-pricing">
           <table className="grid-table">
             <thead><tr><th>Bank</th><th>Rate</th><th>Cut</th><th>Hold</th><th>Hike</th><th>Implied 12m</th></tr></thead>
             <tbody>
@@ -164,7 +173,7 @@ export default function Home() {
             </tbody>
           </table>
         </Panel>
-        <Panel title="Is the market wrong?" action={<Link href="/research" className="text-sm text-verify">Research</Link>}>
+        <Panel title="Is the market wrong?" collapseId="home-is-the-market-wrong" action={<Link href="/research" className="text-sm text-verify">Research</Link>}>
           {d.market_wrong.length === 0 ? (
             <p className="text-sm text-muted">No significant disconnect between data, policy signals and market pricing.</p>
           ) : (

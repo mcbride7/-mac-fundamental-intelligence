@@ -41,3 +41,35 @@ def test_api_ranks_and_retail_entry(client, db):
     assert ret["score"] == -1.4 and eur["retail_long_pct"] == 78
     assert client.put("/api/setups/retail/EURUSD", json={"long_pct": 140}).status_code == 400
     assert client.get("/api/setups?limit=3").json()["setups"].__len__() == 3
+
+
+def test_table_columns_and_scores(client, db):
+    from datetime import datetime, timezone
+
+    from app.models import EconomicEvent
+    from app.services import data_access as da
+    from app.services import manual_service as ms
+    from app.services import setups_table as tb
+
+    assert tb.column_of("US_ISM_MANUF", "business") == "mpmi" and tb.column_of("US_CORE_CPI_YOY", "inflation") is None
+    assert tb.column_of("GB_CLAIMANT", "employment") == "claims" and tb.column_of("EA_HICP_YOY", "inflation") == "cpi"
+    assert tb.column_of("AU_EMPLOYMENT_CHANGE", "employment") == "nfp" and tb.column_of("US_FED_RATE", "monetary_policy") is None
+    assert tb.bias_of(9) == "Very Bullish" and tb.bias_of(4) == "Bullish" and tb.bias_of(-3) == "Neutral"
+    for code, a, f in (("GB_CPI_YOY", 3.9, 3.7), ("US_CPI_YOY", 2.9, 3.1)):
+        ind = da.indicator_by_code(db, code)
+        ev = EconomicEvent(indicator_id=ind.id, reference_period="2026-09", importance="high", consensus=f,
+                           scheduled_at=datetime(2026, 10, 15, 8, tzinfo=timezone.utc))
+        db.add(ev)
+        db.commit()
+        ms.quick_edit_event(db, ev.id, "actual", a, reason="test")
+    tb.clear_cache()
+    d = client.get("/api/setups/table").json()
+    keys = [c["key"] for g in d["groups"] for c in g["columns"]]
+    assert keys[:4] == ["trend", "seasonality", "cot", "crowd"] and "jolts" in keys
+    rows = {r["symbol"]: r for r in d["rows"]}
+    assert rows["GBPUSD"]["cells"]["cpi"] == 2      # UK CPI beat, US CPI missed
+    assert rows["XAUUSD"]["cells"]["cpi"] == 1      # soft US inflation supports gold
+    assert rows["EURGBP"]["cells"]["cpi"] == -1
+    assert all(-2 <= v <= 2 for r in d["rows"] for v in r["cells"].values() if v is not None)
+    assert rows["GBPUSD"]["score"] == sum(v for v in rows["GBPUSD"]["cells"].values() if v is not None)
+    assert len(d["rows"]) == len(tb.MAJORS + tb.CROSSES + tb.EM) + len(tb.OTHER)

@@ -1,5 +1,6 @@
 "use client";
 
+import SetupsTable from "@/components/SetupsTable";
 import TopSetups from "@/components/TopSetups";
 import { PageTitle, Panel } from "@/components/ui";
 import { useApi } from "@/lib/api";
@@ -12,7 +13,8 @@ export default function SetupsPage() {
       <PageTitle title="Top setups"
         subtitle="Every pair and gold scored on five pillars: central bank and rate expectations, economic data and inflation, COT positioning, seasonality and retail sentiment. Best-aligned setups first." />
       <div className="space-y-6">
-        <TopSetups editable />
+        <Panel title="Scoreboard" collapseId="setups-table"><SetupsTable /></Panel>
+        <Panel title="Five-pillar cards" collapseId="setups-cards"><TopSetups editable /></Panel>
         <Panel title="How the score works">
           <ul className="space-y-1.5 text-sm">
             <li><b>Central bank &amp; rate expectations ({w.central_bank ?? 30}%)</b>: hawkish statements and markets pricing hikes are bullish for a currency.</li>
