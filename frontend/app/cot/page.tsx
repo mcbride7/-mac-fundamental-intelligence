@@ -168,7 +168,7 @@ export default function CotPage() {
       <ErrorBox error={board.error} />
       {board.loading && !board.data ? <Loading /> : !markets.length ? <Empty>No COT data yet.</Empty> : (
         <div className="space-y-6">
-          <Panel title={m ? `Positioning chart: ${m.name}` : "Positioning chart"} collapseId="cot-chart">
+          <Panel title="COT chart" collapseId="cot-chart">
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm text-muted">Market
                 <select value={code} onChange={(e) => pick(e.target.value)}
@@ -237,10 +237,9 @@ export default function CotPage() {
               Currency futures are quoted against the US dollar, so a crowded euro short is a crowded long-dollar trade.</p>
           </Panel>
 
-          <RetailBoard />
-
           {m && <Ledger m={m} onSaved={reloadAll} />}
           {m && <Tools code={code} name={m.name} onDone={reloadAll} />}
+          <RetailBoard />
           <p className="text-xs text-muted">Source: U.S. Commodity Futures Trading Commission, Commitments of Traders (Legacy, futures only), via the CFTC Public Reporting Environment.
             &ldquo;Speculators&rdquo; are non-commercial traders; &ldquo;Commercials&rdquo; are hedgers. COT data shows how crowded a trade is; it does not time entries. Not financial advice.</p>
         </div>
