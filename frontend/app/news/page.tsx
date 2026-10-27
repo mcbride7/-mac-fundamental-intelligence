@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import NewsNote from "@/components/NewsNote";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel } from "@/components/ui";
 import { post, useApi } from "@/lib/api";
 
@@ -48,9 +49,11 @@ export default function NewsPage() {
       <div className="space-y-6">
         <Panel title="News tone by currency · last 3 days" collapseId="news-tone"
           action={<span className="text-xs text-muted">Tap a currency to filter the headlines</span>}>
+          <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1">
           {!data ? <Loading /> : (
             <>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                 {CCYS.map((c) => {
                   const t = data.tone[c];
                   const cls = t.lean === "Hawkish" ? "border-[#3d4fd6] bg-[#3d4fd6]/15" : t.lean === "Dovish" ? "border-[#e45d5d] bg-[#e45d5d]/15" : "border-line";
@@ -68,6 +71,9 @@ export default function NewsPage() {
                 <span className="text-muted"> ({data.risk.risk_on} risk-on, {data.risk.risk_off} risk-off)</span></p>
             </>
           )}
+          </div>
+          <div className="flex justify-end sm:shrink-0"><NewsNote /></div>
+          </div>
         </Panel>
 
         <Panel title="Headlines" collapseId="news-list"
