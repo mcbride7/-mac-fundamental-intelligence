@@ -81,3 +81,14 @@ def test_cb_divergence_column():
     assert tb.divergence_cell(30) == 2 and tb.divergence_cell(-12) == -1 and tb.divergence_cell(5) == 0
     assert tb.divergence_cell(None) is None
     assert tb.MACRO_COLS[0] == ("cb_div", "CB diverg.")
+
+
+def test_retail_board(db):
+    from app.services import retail
+
+    retail.set_manual(db, "EURUSD", 72)
+    b = retail.board(db)
+    eu = next(x for x in b["symbols"] if x["symbol"] == "EURUSD")
+    assert eu["long_pct"] == 72 and eu["short_pct"] == 28 and "bearish" in eu["read"] and len(eu["history"]) == 1
+    assert next(x for x in b["symbols"] if x["symbol"] == "XAUUSD")["long_pct"] is None
+    assert b["live"] == 1

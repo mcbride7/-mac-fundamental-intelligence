@@ -1,7 +1,7 @@
 """Top setups table (Home page): one row per symbol, one column per factor, each -2..+2, summed into a score.
 
 Columns
-  Trend & sentiment:   Trend (price vs its 20/50-day averages), Seasonality, COT, Crowd sentiment (retail, contrarian)
+  Trend & sentiment:   Trend (price vs its 20/50-day averages), Seasonality, COT, Retail sentiment (contrarian)
   Macro / economic:    CB tone, Rate expectations, GDP, mPMI, sPMI, Retail sales, Consumer confidence, CPI, PPI, PCE,
                        Interest rates (last decision), NFP / employment change, Unemployment rate, Jobless claims, ADP, JOLTS
 
@@ -36,7 +36,7 @@ OTHER = {"XAUUSD": ("Gold", "Metals"), "XAGUSD": ("Silver", "Metals"), "US500": 
 CATEGORY = {**{p: "FX majors" for p in MAJORS}, **{p: "FX crosses" for p in CROSSES}, **{p: "FX emerging" for p in EM},
             **{k: v[1] for k, v in OTHER.items()}}
 
-TREND_COLS = [("trend", "Trend"), ("seasonality", "Seasonality"), ("cot", "COT"), ("crowd", "Crowd sentiment")]
+TREND_COLS = [("trend", "Trend"), ("seasonality", "Seasonality"), ("cot", "COT"), ("crowd", "Retail sentiment")]
 MACRO_COLS = [("cb_div", "CB diverg."), ("cb", "CB tone"), ("rate_exp", "Rate expect."), ("gdp", "GDP"), ("mpmi", "mPMI"), ("spmi", "sPMI"),
               ("retail_sales", "Retail sales"), ("conf", "Cnsmr conf"), ("cpi", "CPI YoY"), ("ppi", "PPI"),
               ("pce", "PCE YoY"), ("rates", "Interest rates"), ("nfp", "NFP / Jobs"), ("unemp", "Unemploy. rate"),

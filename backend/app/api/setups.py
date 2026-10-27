@@ -28,6 +28,12 @@ def setups_table(db: Session = Depends(get_db)):
     return tb.compute(db)
 
 
+@router.get("/retail")
+def retail_board(days: int = 30, db: Session = Depends(get_db)):
+    """Retail sentiment for every pair and metal: latest long %, weekly change, daily history."""
+    return retail.board(db, max(7, min(days, 180)))
+
+
 class RetailIn(BaseModel):
     long_pct: float
 

@@ -75,3 +75,43 @@ def latest(db: Session, symbol: str) -> RetailSentiment | None:
         return None
     as_of = r.as_of if r.as_of.tzinfo else r.as_of.replace(tzinfo=utcnow().tzinfo)
     return None if utcnow() - as_of > STALE_AFTER else r
+
+
+def _aware(t):
+    return t if t.tzinfo else t.replace(tzinfo=utcnow().tzinfo)
+
+
+def board(db: Session, days: int = 30) -> dict:
+    """Latest retail long % for every tracked symbol, the change over about a week, and a daily history."""
+    from app.services.setups_table import CROSSES, EM, MAJORS
+
+    symbols = MAJORS + CROSSES + EM + ["XAUUSD", "XAGUSD"]
+    names = {"XAUUSD": "Gold", "XAGUSD": "Silver"}
+    since = utcnow() - timedelta(days=days)
+    rows = db.scalars(select(RetailSentiment).where(RetailSentiment.symbol.in_(symbols), RetailSentiment.as_of >= since)
+                      .order_by(RetailSentiment.as_of, RetailSentiment.id)).all()
+    by: dict[str, list[RetailSentiment]] = {}
+    for r in rows:
+        by.setdefault(r.symbol, []).append(r)
+    out = []
+    for s in symbols:
+        hist = by.get(s, [])
+        if not hist:
+            out.append({"symbol": s, "name": names.get(s, f"{s[:3]}/{s[3:]}"), "long_pct": None, "history": []})
+            continue
+        last = hist[-1]
+        daily: dict[str, float] = {}
+        for r in hist:
+            daily[_aware(r.as_of).date().isoformat()] = round(r.long_pct, 1)  # last reading of each day
+        week_ago = [r for r in hist if _aware(r.as_of) <= _aware(last.as_of) - timedelta(days=6)]
+        lp = round(last.long_pct, 1)
+        stale = utcnow() - _aware(last.as_of) > STALE_AFTER
+        read = ("Retail heavily long: contrarian bearish" if lp >= 70 else "Retail mostly long: leans bearish" if lp >= 60
+                else "Retail heavily short: contrarian bullish" if lp <= 30 else "Retail mostly short: leans bullish" if lp <= 40
+                else "Balanced: no edge")
+        out.append({"symbol": s, "name": names.get(s, f"{s[:3]}/{s[3:]}"), "long_pct": lp, "short_pct": round(100 - lp, 1),
+                    "change_week": round(lp - week_ago[-1].long_pct, 1) if week_ago else None,
+                    "source": last.source, "as_of": _aware(last.as_of).isoformat(), "stale": stale, "read": read,
+                    "history": [{"d": d, "long_pct": v} for d, v in daily.items()]})
+    have = [x for x in out if x["long_pct"] is not None and not x["stale"]]
+    return {"symbols": out, "live": len(have), "myfxbook": bool(settings.myfxbook_email and settings.myfxbook_password)}

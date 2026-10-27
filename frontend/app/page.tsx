@@ -22,7 +22,7 @@ export default function Home() {
           <h1 id="top-setups" className="text-2xl font-semibold">Top setups</h1>
           <Link href="/setups" className="text-sm text-verify">Five-pillar cards and how the scores work</Link>
         </div>
-        <p className="mb-3 text-sm text-muted">Trend, seasonality, COT and crowd sentiment, plus central bank tone, rate expectations and every economic release: each scored −2 to +2 and added up. Strongest first.</p>
+        <p className="mb-3 text-sm text-muted">Trend, seasonality, COT and retail sentiment, plus central bank tone, rate expectations and every economic release: each scored −2 to +2 and added up. Strongest first.</p>
         <SetupsTable limit={20} />
       </section>
 

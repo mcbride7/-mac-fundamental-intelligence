@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import QuickEdit from "@/components/QuickEdit";
+import RetailBoard from "@/components/RetailBoard";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel } from "@/components/ui";
 import { post, put, useApi } from "@/lib/api";
 
@@ -207,6 +208,8 @@ export default function CotPage() {
               </>
             )}
           </Panel>
+
+          <RetailBoard />
 
           <Panel title="Market board" action={<span className="text-xs text-muted">Latest week · COT index over 52 weeks · tap a row to chart it</span>}>
             <table className="grid-table">
