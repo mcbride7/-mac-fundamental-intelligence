@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import QuickEdit from "@/components/QuickEdit";
 import SurveysPanel from "@/components/SurveysPanel";
 import { Empty, ErrorBox, Loading, PageTitle, Panel } from "@/components/ui";
-import { useApi } from "@/lib/api";
+import { patch, useApi } from "@/lib/api";
 import { dateTime, num } from "@/lib/format";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "ZAR", "MXN", "CNY"];
@@ -23,6 +24,17 @@ function fmt(v: number | null | undefined, unit: string, signed = false): string
   if (unit === "k") return `${sign}${trim(v, 1)}K`;
   if (unit === "m") return `${sign}${trim(v, 2)}M`;
   return `${sign}${trim(v, 2)}`;
+}
+
+function nextPeriod(p: string | null): string {
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  if (!p) return month;
+  const q = /^(\d{4})Q([1-4])$/.exec(p);
+  if (q) return q[2] === "4" ? `${Number(q[1]) + 1}Q1` : `${q[1]}Q${Number(q[2]) + 1}`;
+  const m = /^(\d{4})-(\d{2})/.exec(p);
+  if (!m) return month;
+  return m[2] === "12" ? `${Number(m[1]) + 1}-01` : `${m[1]}-${String(Number(m[2]) + 1).padStart(2, "0")}`;
 }
 
 function shortDate(d: string | null) {
@@ -106,7 +118,11 @@ function ScoreTable({ title, head, rows }: { title: string; head: string; rows: 
 
 function Heatmap() {
   const [ccy, setCcy] = useState("USD");
-  const { data: d, error, loading } = useApi<any>(`/api/macro/heatmap?currency=${ccy}`);
+  const { data: d, error, loading, reload } = useApi<any>(`/api/macro/heatmap?currency=${ccy}`);
+  const saveSurvey = (code: string) => async (v: string | null, per: string | undefined, reason: string | null) => {
+    await patch(`/api/macro/surveys/${code}`, { value: v, period: per, reason });
+    reload();
+  };
   const tabs: Record<string, any> = Object.fromEntries((d?.tabs || []).map((t: any) => [t.currency, t]));
   return (
     <Panel title={`${ccy} economic heatmap`}>
@@ -128,7 +144,9 @@ function Heatmap() {
       ) : (
         <>
           <p className="mb-3 max-w-[80ch] text-xs text-muted">Surprise is actual minus forecast (or your own figure from the calendar). A hawkish surprise is
-            bullish for {ccy}; stronger growth, jobs or spending is bullish for {d.stock_index}, while hotter inflation is bearish for it.</p>
+            bullish for {ccy}; stronger growth, jobs or spending is bullish for {d.stock_index}, while hotter inflation is bearish for it.
+            PMIs and consumer confidence are scored on three signals: above or below 50 (confidence: its own 12-reading average), up or down on the previous reading,
+            and beat or miss on the forecast. Tap their actual to type a new reading.</p>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[56rem] border-separate border-spacing-y-1 text-sm">
               <thead><tr className="text-left text-xs text-muted">
@@ -140,12 +158,21 @@ function Heatmap() {
               <tbody>
                 {d.rows.map((r: any) => (
                   <tr key={r.indicator}>
-                    <td className="max-w-[16rem] truncate px-2 py-1.5" title={`${r.name} (${r.period})`}>
-                      {r.event_id ? <Link href={`/calendar/${r.event_id}`} className="hover:underline">{r.name}</Link> : r.name}
-                      <span className="ml-1 text-xs text-muted">{r.period}</span></td>
+                    <td className="max-w-[20rem] px-2 py-1.5" title={`${r.name}${r.period ? ` (${r.period})` : ""}`}>
+                      <div className="truncate">
+                        {r.event_id ? <Link href={`/calendar/${r.event_id}`} className="hover:underline">{r.name}</Link> : r.name}
+                        {r.period && <span className="ml-1 text-xs text-muted">{r.period}</span>}
+                        {r.survey && r.survey !== "conf" && r.actual != null && (
+                          <span className={`ml-1.5 rounded px-1 py-px text-[0.65rem] ${r.actual > 50 ? "bg-[#3d4fd6]/25 text-[#9aa6ff]" : r.actual < 50 ? "bg-[#e45d5d]/25 text-[#ff9b9b]" : "bg-panel-2 text-muted"}`}>
+                            {r.actual > 50 ? "Expansion" : r.actual < 50 ? "Contraction" : "50"}</span>)}
+                      </div>
+                      {r.survey && <div className="truncate text-xs text-muted">{r.read || ""}</div>}</td>
                     <td className={`whitespace-nowrap px-2 ${r.new ? "font-medium text-amber" : "text-muted"}`} title={r.new ? "Released in the last 2 days" : undefined}>{shortDate(r.date)}</td>
-                    <td className={`rounded px-2 text-center font-medium tabular-nums ${cellFor(r.currency_impact)}`}>{fmt(r.surprise, r.unit, true)}</td>
-                    <td className={`px-2 text-center tabular-nums ${textFor(r.currency_impact)}`}>{fmt(r.actual, r.unit)}</td>
+                    <td className={`rounded px-2 text-center font-medium tabular-nums ${r.surprise == null ? NEUTRAL : cellFor(r.currency_impact)}`}>{fmt(r.surprise, r.unit, true)}</td>
+                    <td className={`px-2 text-center tabular-nums ${textFor(r.currency_impact)}`}>
+                      {r.survey ? <QuickEdit label={`${r.name} actual`} initial={r.actual != null ? String(r.actual) : ""}
+                        period={{ value: nextPeriod(r.period), quarterly: r.frequency === "quarterly" }} onSave={saveSurvey(r.indicator)}
+                        display={r.actual == null ? <span className="text-muted">add</span> : fmt(r.actual, r.unit)} /> : fmt(r.actual, r.unit)}</td>
                     <td className="px-2 text-center tabular-nums">{fmt(r.forecast, r.unit)}</td>
                     <td className="px-2 text-center tabular-nums text-muted">{fmt(r.previous, r.unit)}</td>
                     <td className={`rounded px-2 py-1.5 text-center font-medium ${cellFor(r.currency_impact)}`}>{r.currency_impact}</td>
@@ -184,8 +211,8 @@ export default function Macro() {
       <PageTitle title="Macro" subtitle="The global regime, and each currency's latest economic releases scored against forecasts. The risk-on / risk-off mood has its own page: Risk sentiment." />
       <div className="space-y-6">
         <Regime />
-        <SurveysPanel />
         <Heatmap />
+        <SurveysPanel />
       </div>
     </>
   );

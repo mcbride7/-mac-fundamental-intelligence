@@ -27,3 +27,15 @@ def test_board_and_edit(client, db):
     assert client.patch("/api/macro/surveys/US_CPI_YOY", json={"value": "3", "period": "2026-09"}).status_code == 404
     rows = client.get("/api/macro/heatmap?currency=NZD").json()["rows"]
     assert any(x["indicator"] == "NZ_MANUF_PMI" for x in rows)
+
+
+def test_heatmap_scores_surveys(client, db):
+    hm = client.get("/api/macro/heatmap?currency=NZD").json()
+    row = next(x for x in hm["rows"] if x["indicator"] == "NZ_MANUF_PMI")
+    assert row["actual"] is None and row["survey"] == "mpmi" and hm["currency_bullish_pct"] is None
+    client.patch("/api/macro/surveys/NZ_MANUF_PMI", json={"value": "48.0", "period": "2026-08"})
+    client.patch("/api/macro/surveys/NZ_MANUF_PMI", json={"value": "52.0", "period": "2026-09"})
+    hm = client.get("/api/macro/heatmap?currency=NZD").json()
+    row = next(x for x in hm["rows"] if x["indicator"] == "NZ_MANUF_PMI")
+    assert row["currency_impact"] == "Bullish" and row["stocks_impact"] == "Bullish" and row["previous"] == 48.0
+    assert hm["currency_bullish_pct"] == 100.0

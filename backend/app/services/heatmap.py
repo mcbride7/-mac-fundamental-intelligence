@@ -59,32 +59,56 @@ def _pts(call: str) -> int:
 
 
 def rows_for(db: Session, currency: str, now: datetime | None = None) -> list[dict]:
+    from app.services import surveys  # PMIs and consumer confidence get their own reading (see below)
+
     now = now or datetime.now(timezone.utc)
     inds = list(db.scalars(select(Indicator).where(Indicator.currency == currency)))
     inds.sort(key=lambda i: (CATEGORY_ORDER.get(i.category, 9), IMPORTANCE.get(i.importance, 3), i.name))
     out = []
     for ind in inds:
+        kind = surveys.kind_of(ind)
         rel = da.latest_current(db, ind.id)
         if rel is None:
+            if kind:  # surveys are always listed so a reading can be typed straight in
+                out.append({"indicator": ind.code, "name": ind.name, "category": ind.category,
+                            "importance": ind.importance, "period": None, "date": None, "new": False,
+                            "surprise": None, "actual": None, "forecast": None, "previous": None,
+                            "unit": ind.unit, "higher_is": ind.higher_is, "currency_impact": "Neutral",
+                            "stocks_impact": "Neutral", "status": None, "event_id": None, "survey": kind,
+                            "frequency": ind.frequency, "lean": None, "read": "No reading yet"})
             continue
         ev = db.get(EconomicEvent, rel.event_id) if rel.event_id else da.event_for(db, ind.id, rel.reference_period)
         forecast = rel.consensus if rel.consensus is not None else (ev.consensus if ev else None)
         previous = rel.previous if rel.previous is not None else (ev.previous if ev else None)
+        series = da.current_series(db, ind.id, 24) if (kind or previous is None) else []
         if previous is None:
-            earlier = [r for r in da.current_series(db, ind.id, 24) if r.reference_period < rel.reference_period]
+            earlier = [r for r in series if r.reference_period < rel.reference_period]
             previous = earlier[-1].actual if earlier else None
         s = db.scalar(select(EconomicSurprise).where(EconomicSurprise.release_id == rel.id))
         surprise = s.market_surprise if s and s.market_surprise is not None else (
             round(rel.actual - forecast, 4) if forecast is not None else None)
         when = _aware(rel.released_at) or (_aware(ev.scheduled_at) if ev else None) or _aware(rel.created_at)
-        cur = currency_call(surprise, ind.higher_is)
+        extra: dict = {}
+        if kind:
+            # PMIs and confidence: above/below 50 (or the survey's own average), up/down on the month and
+            # beat/miss on the forecast, each +1/-1. A positive total is bullish for the currency.
+            hist = [r.actual for r in series if r.reference_period < rel.reference_period]
+            a = surveys.analyse(kind, rel.actual, previous, forecast, hist)
+            if surprise is not None and s and s.market_surprise is not None:
+                a["signals"]["surprise"] = 1 if surprise > 0 else -1 if surprise < 0 else 0
+                a["score"] = sum(a["signals"].values())
+            cur = "Bullish" if a["score"] > 0 else "Bearish" if a["score"] < 0 else "Neutral"
+            extra = {"survey": kind, "frequency": ind.frequency, "lean": a["lean"], "read": a["read"],
+                     "signals": a["signals"]}
+        else:
+            cur = currency_call(surprise, ind.higher_is)
         out.append({
             "indicator": ind.code, "name": ind.name, "category": ind.category, "importance": ind.importance,
             "period": rel.reference_period, "date": when, "new": bool(when and now - when <= timedelta(days=2)),
             "surprise": surprise, "actual": rel.actual, "forecast": forecast, "previous": previous,
             "unit": ind.unit, "higher_is": ind.higher_is,
             "currency_impact": cur, "stocks_impact": stocks_call(cur, ind.category),
-            "status": rel.verification_status, "event_id": ev.id if ev else None,
+            "status": rel.verification_status, "event_id": ev.id if ev else None, **extra,
         })
     return out
 
@@ -94,6 +118,7 @@ def _score(rows: list[dict], key: str) -> int:
 
 
 def _pct(rows: list[dict], key: str) -> float | None:
+    rows = [r for r in rows if r.get("actual") is not None]  # surveys still waiting for a reading don't count
     if not rows:
         return None
     return round(100 * sum(1 for r in rows if r[key] == "Bullish") / len(rows), 2)
@@ -119,7 +144,7 @@ def heatmap(db: Session, currency: str) -> dict:
                   {"asset": "USOIL", "score": stocks_score, "basis": "US growth (stocks impact)"}] + assets
     pairs = []
     for other in CURRENCIES:
-        if other == currency or not all_rows[other]:
+        if other == currency or not any(x.get("actual") is not None for x in all_rows[other]):
             continue
         base, quote = _pair(currency, other)
         pairs.append({"pair": base + quote, "score": cur_score[base] - cur_score[quote],
@@ -131,5 +156,6 @@ def heatmap(db: Session, currency: str) -> dict:
         "currency_bullish_pct": _pct(rows, "currency_impact"), "stocks_bullish_pct": _pct(rows, "stocks_impact"),
         "currency_score": cur_score[currency], "stocks_score": stocks_score,
         "stock_index": STOCK_INDEX[currency], "assets": assets, "pairs": pairs,
-        "tabs": [{"currency": c, "rows": len(r), "score": cur_score[c]} for c, r in all_rows.items()],
+        "tabs": [{"currency": c, "rows": sum(1 for x in r if x.get("actual") is not None), "score": cur_score[c]}
+                 for c, r in all_rows.items()],
     }

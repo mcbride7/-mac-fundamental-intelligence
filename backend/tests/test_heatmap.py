@@ -33,7 +33,8 @@ def test_heatmap_scores_and_pairs(client, db):
     _release(db, "US_RETAIL_SALES_MOM", "2026-09", 0.8, 0.3, 1.2)   # Bullish both
     _release(db, "EA_HICP_YOY", "2026-09", 2.0, 2.2, 2.1)           # Bearish EUR
     d = client.get("/api/macro/heatmap?currency=USD").json()
-    calls = {r["indicator"]: (r["currency_impact"], r["stocks_impact"], round(r["surprise"], 2)) for r in d["rows"]}
+    calls = {r["indicator"]: (r["currency_impact"], r["stocks_impact"], round(r["surprise"], 2)) for r in d["rows"]
+             if r["actual"] is not None}
     assert calls["US_CPI_YOY"] == ("Bullish", "Bearish", 0.1)
     assert calls["US_UNEMPLOYMENT"] == ("Bearish", "Bearish", 0.1)
     assert calls["US_RETAIL_SALES_MOM"] == ("Bullish", "Bullish", 0.5)

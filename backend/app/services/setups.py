@@ -101,7 +101,7 @@ def compute(db: Session, today: date | None = None) -> dict:
         s = snaps.get(c)
         if s is not None:
             cb[c] = st.central_bank_score(s.policy_score, s.implied_change_bps, s.prob_hike, s.prob_cut)
-            rows = heatmap.rows_for(db, c)
+            rows = [r for r in heatmap.rows_for(db, c) if r.get("actual") is not None]
             ds = sum(1 if r["currency_impact"] == "Bullish" else -1 if r["currency_impact"] == "Bearish" else 0
                      for r in rows)
             econ[c] = st.economic_score(s.inflation, s.inflation_target, ds if rows else None, len(rows))

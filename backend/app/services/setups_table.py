@@ -71,6 +71,8 @@ def _ccy_cells(db: Session, ccy: str, snap) -> dict[str, int]:
     """+1 / -1 / 0 per macro column for one currency (hawkish = +1)."""
     cells: dict[str, int] = {}
     for r in heatmap.rows_for(db, ccy):
+        if r.get("actual") is None:
+            continue
         col = column_of(r["indicator"], r["category"])
         if col and col not in cells:
             cells[col] = 1 if r["currency_impact"] == "Bullish" else -1 if r["currency_impact"] == "Bearish" else 0
@@ -89,6 +91,8 @@ def _ccy_cells(db: Session, ccy: str, snap) -> dict[str, int]:
 def _stock_cells(db: Session) -> dict[str, int]:
     cells: dict[str, int] = {}
     for r in heatmap.rows_for(db, "USD"):
+        if r.get("actual") is None:
+            continue
         col = column_of(r["indicator"], r["category"])
         if col and col not in cells:
             cells[col] = 1 if r["stocks_impact"] == "Bullish" else -1 if r["stocks_impact"] == "Bearish" else 0
