@@ -58,3 +58,21 @@ def test_pair_code_alone_gets_no_tone():
     a = news.classify("GBP/USD rallies after stronger-than-expected UK wages")
     assert {"GBP", "USD"} <= set(a["currencies"]) and a["tone"] == "hawkish"
     assert a["tone_currencies"] == ["GBP"]
+
+
+def test_tone_breakdown(db):
+    from app.db import utcnow
+    from app.models import NewsArticle
+
+    rows = [("Fed signals more hikes", ["USD"], ["USD"], "hawkish"),
+            ("GBP/USD rallies on strong UK wages", ["GBP", "USD"], ["GBP"], "hawkish"),
+            ("Powell speaks today", ["USD"], ["USD"], "neutral")]
+    for i, (t, cc, tc, tone) in enumerate(rows):
+        db.add(NewsArticle(uid=f"b{i}", title=t, source_name="t", feed="t", published_at=utcnow(), currencies=cc,
+                           tone_currencies=tc, topics=[], tone=tone))
+    db.commit()
+    usd = news.listing(db)["tone"]["USD"]
+    pts = {b["title"]: b["points"] for b in usd["breakdown"]}
+    assert pts == {"Fed signals more hikes": 1, "GBP/USD rallies on strong UK wages": 0, "Powell speaks today": 0}
+    assert usd["net"] == sum(pts.values())
+    assert "pair code" in next(b["why"] for b in usd["breakdown"] if b["points"] == 0 and "GBP" in b["title"])

@@ -254,6 +254,22 @@ def _toned(a: NewsArticle) -> list[str]:
     return a.tone_currencies if a.tone_currencies is not None else (a.currencies or [])
 
 
+def _brief(a: NewsArticle) -> dict:
+    return {"id": a.id, "title": a.title, "url": a.url, "source": a.source_name, "kind": a.kind,
+            "published_at": _aware(a.published_at).isoformat(), "tone": a.tone, "risk": a.risk}
+
+
+def _scored(a: NewsArticle, c: str) -> dict:
+    """How one headline counted towards currency c's news tone (+1 hawkish, -1 dovish, 0 not counted)."""
+    named = c in _toned(a)
+    pts = (1 if a.tone == "hawkish" else -1 if a.tone == "dovish" else 0) if named else 0
+    why = ("hawkish headline" if pts > 0 else "dovish headline" if pts < 0 else
+           "neutral: no hawkish or dovish wording" if named else
+           f"{a.tone} wording, but {c} only appears as a pair code, so it isn't counted for {c}"
+           if a.tone != "neutral" else "neutral: no hawkish or dovish wording")
+    return _brief(a) | {"points": pts, "why": why}
+
+
 def row(a: NewsArticle) -> dict:
     return {"id": a.id, "title": a.title, "summary": a.summary, "url": a.url, "source": a.source_name,
             "feed": a.feed, "kind": a.kind, "published_at": _aware(a.published_at).isoformat(),
@@ -279,13 +295,15 @@ def listing(db: Session, currency: str | None = None, topic: str | None = None, 
         toned = [a for a in mine if c in _toned(a)]
         hk, dv = sum(a.tone == "hawkish" for a in toned), sum(a.tone == "dovish" for a in toned)
         tone_by[c] = {"articles": len(mine), "hawkish": hk, "dovish": dv, "net": hk - dv,
-                      "lean": "Hawkish" if hk - dv >= 2 else "Dovish" if dv - hk >= 2 else "Balanced" if mine else "Quiet"}
+                      "lean": "Hawkish" if hk - dv >= 2 else "Dovish" if dv - hk >= 2 else "Balanced" if mine else "Quiet",
+                      "breakdown": [_scored(a, c) for a in mine]}
     ro = sum(a.risk == "risk_off" for a in recent)
     rn = sum(a.risk == "risk_on" for a in recent)
+    risk_items = [_brief(a) | {"points": 1 if a.risk == "risk_on" else -1} for a in recent if a.risk]
     src = db.scalar(select(Source).where(Source.key == "news"))
     cfg = (src.config or {}) if src else {}
     return {"articles": [row(a) for a in shown[:limit]], "total": len(shown), "tone": tone_by,
-            "risk": {"risk_on": rn, "risk_off": ro, "lean": "Risk-off" if ro - rn >= 3 else "Risk-on" if rn - ro >= 3 else "Mixed"},
+            "risk": {"risk_on": rn, "risk_off": ro, "items": risk_items, "lean": "Risk-off" if ro - rn >= 3 else "Risk-on" if rn - ro >= 3 else "Mixed"},
             "topics": list(TOPICS), "feeds": cfg.get("feeds", {}), "last_run": cfg.get("last_run")}
 
 
