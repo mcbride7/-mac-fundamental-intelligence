@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import ScoreNote from "@/components/ScoreNote";
 import { ErrorBox, Loading } from "@/components/ui";
 import { useApi } from "@/lib/api";
 
@@ -58,7 +59,8 @@ export default function SetupsTable({ limit }: { limit?: number }) {
   );
   return (
     <div>
-      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-3 flex flex-col-reverse gap-3 sm:flex-row sm:items-start">
+      <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 self-start sm:grid-cols-2 lg:grid-cols-3">
         <label className="flex min-w-0 flex-col gap-1 text-xs text-muted">Symbol search
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. GBP, gold" className="rounded border border-line bg-panel-2 px-2 py-1.5 text-sm text-text" />
         </label>
@@ -67,6 +69,8 @@ export default function SetupsTable({ limit }: { limit?: number }) {
         {sel("Technical score", tech, setTech, SIGN_FILTERS)}
         {sel("Sentiment + COT score", sent, setSent, SIGN_FILTERS)}
         {sel("Macro score", macro, setMacro, SIGN_FILTERS)}
+      </div>
+      <div className="flex justify-end sm:shrink-0"><ScoreNote /></div>
       </div>
       <div className="overflow-x-auto rounded-md border border-line">
         <table className="w-full min-w-[78rem] border-collapse text-xs tabular-nums">
