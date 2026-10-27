@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import Auth, get_db, row, rows
+from app.api.deps import Auth, current_user_id, get_db, row, rows
 from app.engines import currency_engine, market_engine
 from app.engines import fundamentals as fnd
 from app.models import (
@@ -241,6 +241,36 @@ def seasonality_asset(key: str, years: int = 10, db: Session = Depends(get_db)):
         return ss.asset_view(db, key.upper(), max(3, min(years, 25)))
     except LookupError as exc:
         raise HTTPException(404, str(exc))
+
+
+@router.get("/macro/surveys")
+def macro_surveys(db: Session = Depends(get_db)):
+    """Manufacturing PMI, services PMI and consumer confidence for every currency, with a read on each."""
+    from app.services import surveys
+
+    return surveys.board(db)
+
+
+class SurveyEditIn(BaseModel):
+    value: str | float | None = None
+    period: str | None = None
+    reason: str | None = None
+
+
+@router.patch("/macro/surveys/{code}")
+def macro_survey_edit(code: str, body: SurveyEditIn, db: Session = Depends(get_db),
+                      user_id: int = Depends(current_user_id)):
+    from app.services import manual_service as ms
+    from app.services import surveys
+
+    try:
+        return surveys.edit(db, code.upper(), body.value, body.period, body.reason, user_id)
+    except ms.CommitBlocked as exc:
+        raise HTTPException(422, {"message": "Check this value", "problems": exc.problems})
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.get("/macro/heatmap")

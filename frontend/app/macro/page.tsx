@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import SurveysPanel from "@/components/SurveysPanel";
 import { Empty, ErrorBox, Loading, PageTitle, Panel } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { dateTime, num } from "@/lib/format";
@@ -183,6 +184,7 @@ export default function Macro() {
       <PageTitle title="Macro" subtitle="The global regime, and each currency's latest economic releases scored against forecasts. The risk-on / risk-off mood has its own page: Risk sentiment." />
       <div className="space-y-6">
         <Regime />
+        <SurveysPanel />
         <Heatmap />
       </div>
     </>

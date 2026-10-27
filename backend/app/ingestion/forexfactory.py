@@ -123,6 +123,26 @@ _add("NZD", "NZ_UNEMPLOYMENT", "Unemployment Rate")
 _add("NZD", "NZ_EMPLOYMENT_CHANGE", "Employment Change q/q")
 _add("NZD", "NZ_RETAIL_SALES_QOQ", "Retail Sales q/q")
 
+# business surveys (PMIs) and consumer confidence
+_add("USD", "US_SPG_MANUF_PMI", "Flash Manufacturing PMI", "Final Manufacturing PMI")
+_add("USD", "US_SPG_SERVICES_PMI", "Flash Services PMI", "Final Services PMI")
+_add("AUD", "AU_MANUF_PMI", "Final Manufacturing PMI")
+_add("AUD", "AU_SERVICES_PMI", "Final Services PMI")
+_add("AUD", "AU_CONSUMER_CONF", "Westpac Consumer Sentiment")
+_add("JPY", "JP_CONSUMER_CONF", "Consumer Confidence")
+_add("CHF", "CH_SERVICES_PMI", "Services PMI", "procure.ch Services PMI")
+_add("CHF", "CH_MANUF_PMI", "procure.ch Manufacturing PMI")
+_add("CHF", "CH_CONSUMER_CONF", "SECO Consumer Climate")
+_add("CAD", "CA_MANUF_PMI", "Manufacturing PMI", "S&P Global Manufacturing PMI")
+_add("CAD", "CA_SERVICES_PMI", "Services PMI", "S&P Global Services PMI")
+_add("NZD", "NZ_MANUF_PMI", "BusinessNZ Manufacturing Index")
+_add("NZD", "NZ_SERVICES_PMI", "BusinessNZ Services Index")
+_add("NZD", "NZ_CONSUMER_CONF", "ANZ-RM Consumer Confidence", "ANZ Consumer Confidence", "Westpac Consumer Sentiment")
+_add("CNY", "CN_MANUF_PMI", "Manufacturing PMI")
+_add("CNY", "CN_SERVICES_PMI", "Non-Manufacturing PMI")
+_add("CNY", "CN_CAIXIN_MANUF_PMI", "Caixin Manufacturing PMI", "RatingDog Manufacturing PMI")
+_add("CNY", "CN_CAIXIN_SERVICES_PMI", "Caixin Services PMI", "RatingDog Services PMI")
+
 IMPORTANCE = {"high": "high", "medium": "medium", "low": "low"}
 
 
