@@ -46,7 +46,8 @@ def parse_feed(xml_bytes: bytes) -> list[dict]:
         title = (get.get("title").text or "").strip() if get.get("title") is not None else ""
         link_el = get.get("link")
         link = (link_el.text or link_el.attrib.get("href", "")).strip() if link_el is not None else ""
-        date_el = get.get("pubDate") or get.get("updated") or get.get("published")
+        # an XML element with no children is falsy, so `a or b` would always skip it
+        date_el = next((get[k] for k in ("pubDate", "updated", "published") if k in get), None)
         pub = None
         if date_el is not None and date_el.text:
             try:

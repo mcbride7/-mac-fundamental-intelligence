@@ -105,7 +105,7 @@ export default function SetupsTable({ limit }: { limit?: number }) {
         </table>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-        <span>Each cell is −2 to +2 (blue = bullish, red = bearish, blank = no data). Score = the sum. Pairs compare base vs quote; gold, silver and the T-note read US data the other way round.
+        <span>Each cell is −2 to +2 (blue = bullish, red = bearish, blank = no data). Score = the sum. Pairs compare base vs quote; gold, silver and the T-note read US data the other way round. News tone = hawkish minus dovish headlines over 3 days.
           CB divergence compares the two central banks&rsquo; policy scores (10+ points apart = ±1, 25+ = ±2; hover a cell for the numbers).
           Scores refresh every 10 minutes.</span>
         {limit && rows.length > limit && (

@@ -68,3 +68,4 @@ from app.models.overrides import EventOverride  # noqa: F401,E402
 from app.models.risk import RiskSentiment  # noqa: F401,E402
 from app.models.cot import CotWeek  # noqa: F401,E402
 from app.models.sentiment import RetailSentiment  # noqa: F401,E402
+from app.models.news import NewsArticle  # noqa: F401,E402

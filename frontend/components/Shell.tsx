@@ -12,6 +12,7 @@ const NAV: { href: string; label: string }[] = [
   { href: "/markets", label: "Markets" },
   { href: "/central-banks", label: "Central banks" },
   { href: "/calendar", label: "Economic calendar" },
+  { href: "/news", label: "News" },
   { href: "/macro", label: "Macro" },
   { href: "/risk", label: "Risk sentiment" },
   { href: "/cot", label: "COT positioning" },

@@ -36,7 +36,7 @@ OTHER = {"XAUUSD": ("Gold", "Metals"), "XAGUSD": ("Silver", "Metals"), "US500": 
 CATEGORY = {**{p: "FX majors" for p in MAJORS}, **{p: "FX crosses" for p in CROSSES}, **{p: "FX emerging" for p in EM},
             **{k: v[1] for k, v in OTHER.items()}}
 
-TREND_COLS = [("trend", "Trend"), ("seasonality", "Seasonality"), ("cot", "COT"), ("crowd", "Retail sentiment")]
+TREND_COLS = [("trend", "Trend"), ("seasonality", "Seasonality"), ("cot", "COT"), ("crowd", "Retail sentiment"), ("news", "News tone")]
 MACRO_COLS = [("cb_div", "CB diverg."), ("cb", "CB tone"), ("rate_exp", "Rate expect."), ("gdp", "GDP"), ("mpmi", "mPMI"), ("spmi", "sPMI"),
               ("retail_sales", "Retail sales"), ("conf", "Cnsmr conf"), ("cpi", "CPI YoY"), ("ppi", "PPI"),
               ("pce", "PCE YoY"), ("rates", "Interest rates"), ("nfp", "NFP / Jobs"), ("unemp", "Unemploy. rate"),
@@ -185,6 +185,9 @@ def compute(db: Session, today: date | None = None) -> dict:
     series = {k: dict(ss._obs(db, k)) for k in ["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDJPY", "USDCHF", "USDCAD",
                                                 "USDZAR", "USDMXN", "XAUUSD", "XAGUSD", "SPX", "US10Y"]}
     moves = daily_moves(db, 1)
+    from app.services import news as nw
+
+    news_ccy = nw.tone_cells(db)
     pscore = {c: (snaps[c].policy_score if snaps.get(c) is not None else None) for c in FX + ["ZAR", "MXN"]}
     others = [v for c, v in pscore.items() if c != "USD" and v is not None]
     world = statistics.fmean(others) if others else None
@@ -209,6 +212,12 @@ def compute(db: Session, today: date | None = None) -> dict:
                 notes["cb_div"] = (f"Fed policy score {fed:.0f} vs other central banks' average {world:.0f}: "
                                    f"{'Fed relatively dovish (supportive)' if gap > 0 else 'Fed relatively hawkish (headwind)' if gap < 0 else 'in line'}")
             cells["cot"] = cot_cell(db, COT_CODE[asset])
+            # hawkish US headlines weigh on gold, silver and T-notes; risk-on headlines help stocks
+            nu = news_ccy.get("USD")
+            if asset == "US500":
+                cells["news"] = None if nu is None else news_ccy.get("_risk", 0) - nu
+            else:
+                cells["news"] = None if nu is None else -nu
             mode = "bp" if asset == "US10T" else "pct"
             chg = moves.get({"XAUUSD": "GOLD", "XAGUSD": "SILVER", "US500": "SPX500"}.get(asset, ""), {})
             day_change = chg.get("change_pct")
@@ -229,6 +238,8 @@ def compute(db: Session, today: date | None = None) -> dict:
                                    f"100 = very hawkish): {CB_NAME.get(hawk, hawk)} more hawkish by {abs(gap):.0f} points")
             xb, xq = cot_ccy.get(b), cot_ccy.get(q)
             cells["cot"] = (xb or 0) - (xq or 0) if (xb is not None or xq is not None) else None
+            nb, nq = news_ccy.get(b), news_ccy.get(q)
+            cells["news"] = (nb or 0) - (nq or 0) if (nb is not None or nq is not None) else None
             mode = "pct"
             mb = 0.0 if b == "USD" else moves.get(b, {}).get("change_pct")
             mq = 0.0 if q == "USD" else moves.get(q, {}).get("change_pct")
@@ -242,7 +253,7 @@ def compute(db: Session, today: date | None = None) -> dict:
         cells = {k: (None if v is None else max(-2, min(2, int(v)))) for k, v in cells.items()}
         score = sum(v for v in cells.values() if v is not None)
         tech = cells.get("trend") or 0
-        sentcot = (cells.get("cot") or 0) + (cells.get("crowd") or 0)
+        sentcot = (cells.get("cot") or 0) + (cells.get("crowd") or 0) + (cells.get("news") or 0)
         macro_sum = sum((cells.get(k) or 0) for k, _ in MACRO_COLS)
         rows.append({"symbol": asset, "name": name, "category": CATEGORY[asset], "score": score, "bias": bias_of(score),
                      "cells": cells, "technical": tech, "sentiment_cot": sentcot, "macro": macro_sum,
