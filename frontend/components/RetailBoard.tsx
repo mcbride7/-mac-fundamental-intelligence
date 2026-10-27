@@ -40,22 +40,34 @@ function History({ points }: { points: { d: string; long_pct: number }[] }) {
 export default function RetailBoard() {
   const { data, error, loading, reload } = useApi<any>("/api/setups/retail?days=60");
   const [sel, setSel] = useState("EURUSD");
+  const [all, setAll] = useState(false);
   if (error) return <Panel title="Retail sentiment"><ErrorBox error={error} /></Panel>;
   if (loading && !data) return <Panel title="Retail sentiment"><Loading /></Panel>;
   if (!data) return null;
-  const syms: any[] = data.symbols;
-  const cur = syms.find((s) => s.symbol === sel) || syms[0];
+  const every: any[] = data.symbols;
+  const withData = every.filter((s) => s.long_pct != null);
+  const syms = all ? every : withData;
+  const job = data.job;
+  const cur = every.find((s) => s.symbol === sel && s.long_pct != null) || withData[0] || every[0];
   const save = (sym: string) => async (v: string | null) => { await put(`/api/setups/retail/${sym}`, { long_pct: Number(v) }); reload(); };
   return (
-    <Panel title="Retail sentiment" action={<span className="text-xs text-muted">Share of retail traders long vs short · tap a row for its history · tap a % to type one in</span>}>
+    <Panel title="Retail sentiment" collapseId="cot-retail" action={<span className="text-xs text-muted">Share of retail traders long vs short · tap a row for its history · tap a % to type one in</span>}>
       {!data.live && (
-        <p className="mb-3 rounded border-l-4 border-amber bg-panel-2/60 px-3 py-2 text-sm">
-          {data.myfxbook ? "Waiting for the first Myfxbook update (every 2 hours, or press Run now on Data health)."
-            : "No live retail data yet. Add MYFXBOOK_EMAIL and MYFXBOOK_PASSWORD on api and worker in Railway, or tap a % below to type one in."}
-        </p>
+        <div className="mb-3 rounded border-l-4 border-amber bg-panel-2/60 px-3 py-2 text-sm">
+          <p className="font-medium">No live retail data yet.</p>
+          {!data.myfxbook ? (
+            <p className="mt-1">The <b>api</b> service can&rsquo;t see your Myfxbook login. In Railway, check that <code>MYFXBOOK_EMAIL</code> and <code>MYFXBOOK_PASSWORD</code> are on <b>api</b> (and <b>worker</b>), spelled exactly like that, then redeploy api and press Run now on Data health.</p>
+          ) : job?.last_error ? (
+            <p className="mt-1">Myfxbook&rsquo;s last run failed: <span className="text-amber">{job.last_error}</span></p>
+          ) : (
+            <p className="mt-1">Myfxbook login is set. Press <b>Run now</b> next to Myfxbook on Data health (it also runs every 2 hours).</p>
+          )}
+          {job?.last_attempt_at && <p className="mt-1 text-xs text-muted">Last run {new Date(job.last_attempt_at).toLocaleString()} · {job.records_last_run} symbols saved · status {job.status}</p>}
+          <p className="mt-1 text-xs text-muted">Or tap &ldquo;no data&rdquo; next to a pair (press &ldquo;Show all&rdquo;) to type a long % in yourself.</p>
+        </div>
       )}
       <div className="grid gap-x-8 gap-y-4 lg:grid-cols-3">
-        {GROUPS.map(([g, f]) => (
+        {GROUPS.filter(([, f]) => syms.some((s) => f(s.symbol))).map(([g, f]) => (
           <div key={g}>
             <h3 className="mb-2 text-xs uppercase tracking-wide text-muted">{g}</h3>
             <ul className="space-y-1.5">
@@ -81,7 +93,11 @@ export default function RetailBoard() {
           </div>
         ))}
       </div>
-      {cur && (
+      {withData.length < every.length && (
+        <button className="mt-3 rounded border border-line px-2 py-1 text-xs hover:bg-panel-2" onClick={() => setAll(!all)}>
+          {all ? `Show only the ${withData.length} with data` : `Show all ${every.length} pairs and metals`}</button>
+      )}
+      {cur && cur.long_pct != null && (
         <div className="mt-5 border-t border-line pt-4">
           <h3 className="mb-1 font-medium">{cur.name}: retail long % over 60 days</h3>
           {cur.long_pct != null && <p className="mb-2 text-sm text-muted">{cur.long_pct}% long / {cur.short_pct}% short · {cur.read} · {cur.source}, {new Date(cur.as_of).toLocaleString()}</p>}

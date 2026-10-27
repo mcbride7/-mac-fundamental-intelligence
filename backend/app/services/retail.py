@@ -6,6 +6,7 @@ near turning points, so the setup score leans the other way.
 from __future__ import annotations
 
 from datetime import timedelta
+from urllib.parse import unquote
 
 import requests
 from sqlalchemy import select
@@ -29,7 +30,7 @@ def fetch_myfxbook() -> dict[str, float]:
     data = r.json()
     if data.get("error"):
         raise SourceUnavailable(f"Myfxbook login failed: {data.get('message', 'check email and password')}")
-    session = data["session"]
+    session = unquote(str(data["session"]))  # Myfxbook returns it URL-encoded; requests would encode it twice
     try:
         r = requests.get(f"{BASE}/get-community-outlook.json", params={"session": session}, timeout=30)
         out = r.json()
@@ -50,9 +51,9 @@ def fetch_myfxbook() -> dict[str, float]:
 
 
 def run_myfxbook(db: Session, src: Source) -> int:
-    if not (settings.myfxbook_email and settings.myfxbook_password):
-        return 0  # not set up: retail sentiment can be typed in instead, so this isn't an error
-    got = fetch_myfxbook()
+    got = fetch_myfxbook()  # raises a clear "set MYFXBOOK_EMAIL ..." message on Data health if not set up
+    if not got:
+        raise SourceUnavailable("Myfxbook answered but sent no symbols; check the account works on myfxbook.com")
     for sym, lp in got.items():
         db.add(RetailSentiment(symbol=sym, long_pct=lp, source="Myfxbook"))
     db.commit()
@@ -114,4 +115,12 @@ def board(db: Session, days: int = 30) -> dict:
                     "source": last.source, "as_of": _aware(last.as_of).isoformat(), "stale": stale, "read": read,
                     "history": [{"d": d, "long_pct": v} for d, v in daily.items()]})
     have = [x for x in out if x["long_pct"] is not None and not x["stale"]]
-    return {"symbols": out, "live": len(have), "myfxbook": bool(settings.myfxbook_email and settings.myfxbook_password)}
+    from app.models import SourceHealth
+
+    h = db.scalar(select(SourceHealth).join(Source).where(Source.key == "myfxbook"))
+    status = None if h is None else {
+        "status": h.status, "records_last_run": h.records_last_run, "last_error": h.last_error,
+        "last_attempt_at": _aware(h.last_attempt_at).isoformat() if h.last_attempt_at else None,
+        "last_success_at": _aware(h.last_success_at).isoformat() if h.last_success_at else None}
+    return {"symbols": out, "live": len(have), "myfxbook": bool(settings.myfxbook_email and settings.myfxbook_password),
+            "job": status}

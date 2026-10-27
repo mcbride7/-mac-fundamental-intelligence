@@ -168,7 +168,7 @@ export default function CotPage() {
       <ErrorBox error={board.error} />
       {board.loading && !board.data ? <Loading /> : !markets.length ? <Empty>No COT data yet.</Empty> : (
         <div className="space-y-6">
-          <Panel>
+          <Panel title={m ? `Positioning chart: ${m.name}` : "Positioning chart"} collapseId="cot-chart">
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm text-muted">Market
                 <select value={code} onChange={(e) => pick(e.target.value)}
@@ -209,9 +209,7 @@ export default function CotPage() {
             )}
           </Panel>
 
-          <RetailBoard />
-
-          <Panel title="Market board" action={<span className="text-xs text-muted">Latest week · COT index over 52 weeks · tap a row to chart it</span>}>
+          <Panel title="Market board" collapseId="cot-board" action={<span className="text-xs text-muted">Latest week · COT index over 52 weeks · tap a row to chart it</span>}>
             <table className="grid-table">
               <thead><tr><th>Market</th><th className="text-right">Spec net</th><th className="text-right">Δ week</th>
                 <th className="text-right">Comm net</th><th className="text-center">COT index</th><th className="text-right">Long %</th><th>Flags</th><th>Week</th></tr></thead>
@@ -239,6 +237,8 @@ export default function CotPage() {
               Currency futures are quoted against the US dollar, so a crowded euro short is a crowded long-dollar trade.</p>
           </Panel>
 
+          <RetailBoard />
+
           {m && <Ledger m={m} onSaved={reloadAll} />}
           {m && <Tools code={code} name={m.name} onDone={reloadAll} />}
           <p className="text-xs text-muted">Source: U.S. Commodity Futures Trading Commission, Commitments of Traders (Legacy, futures only), via the CFTC Public Reporting Environment.
@@ -254,7 +254,7 @@ function Ledger({ m, onSaved }: { m: any; onSaved: () => void }) {
   const rows = [...(m.series || [])].reverse();
   const shown = all ? rows : rows.slice(0, 12);
   return (
-    <Panel title={`Weekly ledger: ${m.name}`} action={<span className="text-xs text-muted">Newest first · tap a price to change it</span>}>
+    <Panel title={`Weekly ledger: ${m.name}`} collapseId="cot-ledger" action={<span className="text-xs text-muted">Newest first · tap a price to change it</span>}>
       <table className="grid-table">
         <thead><tr><th>Report date</th><th className="text-right">Price</th><th className="text-right">Open interest</th>
           <th className="text-right">Spec long</th><th className="text-right">Spec short</th><th className="text-right">Spec net</th><th className="text-right">Δ net</th>
@@ -312,12 +312,12 @@ function Tools({ code, name, onDone }: { code: string; name: string; onDone: () 
   };
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <Panel title={`Paste prices: ${name}`}>
+      <Panel title={`Paste prices: ${name}`} collapseId="cot-paste">
         <p className="mb-2 text-sm text-muted">One week per line as <code>date, price</code>, e.g. <code>2026-10-13, 2475.30</code>. Each line goes to the report dated on, or up to 3 days before, that date. Typed prices are never overwritten.</p>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} className="w-full rounded border border-line bg-ink p-2 text-sm" placeholder="2026-10-13, 2475.30" />
         <div className="mt-2 flex flex-wrap items-center gap-3"><Button disabled={!text.trim()} onClick={paste}>Save prices</Button>{msg && <span className="text-sm text-muted">{msg}</span>}</div>
       </Panel>
-      <Panel title="Add weeks from a CFTC file">
+      <Panel title="Add weeks from a CFTC file" collapseId="cot-file">
         <p className="mb-2 text-sm text-muted">New weeks arrive automatically every Friday night. To fill a gap, download the CFTC&rsquo;s Legacy futures-only history file
           (<a className="text-verify hover:underline" href="https://www.cftc.gov/files/dea/history/deacot2026.zip" target="_blank" rel="noreferrer">2026</a>,{" "}
           <a className="text-verify hover:underline" href="https://www.cftc.gov/files/dea/history/deacot2025.zip" target="_blank" rel="noreferrer">2025</a>) and upload it here, zipped or not. Weeks already stored are matched by date.</p>
