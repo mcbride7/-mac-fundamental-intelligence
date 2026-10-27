@@ -800,9 +800,11 @@ def quick_edit_event(db: Session, event_id: int, field: str, value: float | None
         setattr(ev, field, value)
         if field == "consensus":
             ev.consensus_source = "manual" if value is not None else None
+        rel = da.current_release(db, ind.id, ev.reference_period)
+        if rel is not None:  # the release keeps its own copy, which the analysis reads first
+            setattr(rel, field, value)
         audit(db, "economic_event", ev.id, f"edited {field}", user_id, before=before, after=value)
         db.commit()
-        rel = da.current_release(db, ind.id, ev.reference_period)
         jobs = []
         if rel is not None:  # the surprise depends on the forecast, so re-analyse
             job = recompute.trigger(db, "release", rel.id, release_ids={rel.id}, indicator_ids={ind.id},

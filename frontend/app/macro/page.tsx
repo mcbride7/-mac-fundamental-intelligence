@@ -119,10 +119,16 @@ function ScoreTable({ title, head, rows }: { title: string; head: string; rows: 
 function Heatmap() {
   const [ccy, setCcy] = useState("USD");
   const { data: d, error, loading, reload } = useApi<any>(`/api/macro/heatmap?currency=${ccy}`);
-  const saveSurvey = (code: string) => async (v: string | null, per: string | undefined, reason: string | null) => {
-    await patch(`/api/macro/surveys/${code}`, { value: v, period: per, reason });
+  const save = (code: string, field: string) => async (v: string | null, per: string | undefined, reason: string | null) => {
+    await patch(`/api/macro/indicators/${code}`, { field, value: v, period: per, reason });
     reload();
   };
+  // a new actual is usually for the period after the one shown; forecast and previous belong to the period shown
+  const actualPeriod = (r: any) => (r.actual == null || r.frequency === "weekly" ? r.edit_period : nextPeriod(r.period));
+  const edit = (r: any, field: string, value: number | null, per: string, display: React.ReactNode) => (
+    <QuickEdit label={`${r.name} ${field}`} initial={value != null ? String(value) : ""} allowEmpty={field !== "actual"}
+      period={{ value: per, quarterly: r.frequency === "quarterly" }} onSave={save(r.indicator, field)} display={display} />
+  );
   const tabs: Record<string, any> = Object.fromEntries((d?.tabs || []).map((t: any) => [t.currency, t]));
   return (
     <Panel title={`${ccy} economic heatmap`}>
@@ -146,7 +152,8 @@ function Heatmap() {
           <p className="mb-3 max-w-[80ch] text-xs text-muted">Surprise is actual minus forecast (or your own figure from the calendar). A hawkish surprise is
             bullish for {ccy}; stronger growth, jobs or spending is bullish for {d.stock_index}, while hotter inflation is bearish for it.
             PMIs and consumer confidence are scored on three signals: above or below 50 (confidence: its own 12-reading average), up or down on the previous reading,
-            and beat or miss on the forecast. Tap their actual to type a new reading.</p>
+            and beat or miss on the forecast.
+            Any actual, forecast or previous the feeds can&rsquo;t fetch can be typed in: tap the number or &ldquo;add&rdquo; (it also appears on the calendar).</p>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[56rem] border-separate border-spacing-y-1 text-sm">
               <thead><tr className="text-left text-xs text-muted">
@@ -170,11 +177,9 @@ function Heatmap() {
                     <td className={`whitespace-nowrap px-2 ${r.new ? "font-medium text-amber" : "text-muted"}`} title={r.new ? "Released in the last 2 days" : undefined}>{shortDate(r.date)}</td>
                     <td className={`rounded px-2 text-center font-medium tabular-nums ${r.surprise == null ? NEUTRAL : cellFor(r.currency_impact)}`}>{fmt(r.surprise, r.unit, true)}</td>
                     <td className={`px-2 text-center tabular-nums ${textFor(r.currency_impact)}`}>
-                      {r.survey ? <QuickEdit label={`${r.name} actual`} initial={r.actual != null ? String(r.actual) : ""}
-                        period={{ value: nextPeriod(r.period), quarterly: r.frequency === "quarterly" }} onSave={saveSurvey(r.indicator)}
-                        display={r.actual == null ? <span className="text-muted">add</span> : fmt(r.actual, r.unit)} /> : fmt(r.actual, r.unit)}</td>
-                    <td className="px-2 text-center tabular-nums">{fmt(r.forecast, r.unit)}</td>
-                    <td className="px-2 text-center tabular-nums text-muted">{fmt(r.previous, r.unit)}</td>
+                      {edit(r, "actual", r.actual, actualPeriod(r), r.actual == null ? <span className="text-muted">add</span> : fmt(r.actual, r.unit))}</td>
+                    <td className="px-2 text-center tabular-nums">{edit(r, "forecast", r.forecast, r.edit_period, r.forecast == null ? <span className="text-muted">add</span> : fmt(r.forecast, r.unit))}</td>
+                    <td className="px-2 text-center tabular-nums text-muted">{edit(r, "previous", r.previous, r.edit_period, r.previous == null ? <span className="text-muted">add</span> : fmt(r.previous, r.unit))}</td>
                     <td className={`rounded px-2 py-1.5 text-center font-medium ${cellFor(r.currency_impact)}`}>{r.currency_impact}</td>
                     <td className={`rounded px-2 py-1.5 text-center font-medium ${cellFor(r.stocks_impact)}`}>{r.stocks_impact}</td>
                   </tr>

@@ -122,27 +122,10 @@ def board(db: Session) -> dict:
 
 def edit(db: Session, code: str, value, period: str | None, reason: str | None, user_id: int | None) -> dict:
     """Type in a reading from the Macro page (same checks as the calendar; unusual values ask for a reason)."""
-    from app.services import manual_service as ms
+    from app.services import macro_edit
 
     ind = da.indicator_by_code(db, code)
     if ind is None or not kind_of(ind):
         raise LookupError(f"Unknown survey indicator {code}")
-    try:
-        v = float(str(value).replace(",", "").strip())
-    except (TypeError, ValueError):
-        raise ValueError("Type a number, e.g. 51.3")
-    if not -500 <= v <= 500:
-        raise ValueError("That number looks out of range for a survey index")
-    per = (period or utcnow().strftime("%Y-%m")).strip().upper()
-    if ind.frequency == "quarterly":
-        if not re.fullmatch(r"\d{4}Q[1-4]", per):
-            raise ValueError("Period should look like 2026Q3")
-    elif not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])(-\d{2})?", per):
-        raise ValueError("Period should look like 2026-09")
-    earlier = [r for r in da.current_series(db, ind.id, 36) if r.reference_period < per]
-    res = ms.quick_release(db, ind, per, v, user_id, reason, "Macro page edit", "macro_survey_edit",
-                           previous=earlier[-1].actual if earlier else None)
-    from app.services import setups_table
-
-    setups_table.clear_cache()
-    return {"indicator": ind.code, "period": per, "value": v, **res}
+    res = macro_edit.edit(db, code, "actual", value, period, reason, user_id)
+    return res | {"value": res.get("value")}

@@ -39,3 +39,20 @@ def test_heatmap_scores_surveys(client, db):
     row = next(x for x in hm["rows"] if x["indicator"] == "NZ_MANUF_PMI")
     assert row["currency_impact"] == "Bullish" and row["stocks_impact"] == "Bullish" and row["previous"] == 48.0
     assert hm["currency_bullish_pct"] == 100.0
+
+
+def test_heatmap_edit_any_indicator(client, db):
+    rows = client.get("/api/macro/heatmap?currency=ZAR").json()["rows"]
+    gdp = next(x for x in rows if x["indicator"] == "ZA_GDP_QOQ")
+    assert gdp["actual"] is None and gdp["edit_period"].startswith("20")
+    r = client.patch("/api/macro/indicators/ZA_GDP_QOQ", json={"field": "forecast", "value": "0.4", "period": "2026Q2"})
+    assert r.status_code == 200, r.text
+    r = client.patch("/api/macro/indicators/ZA_GDP_QOQ", json={"field": "actual", "value": "0.6", "period": "2026Q2"})
+    assert r.status_code == 200, r.text
+    gdp = next(x for x in client.get("/api/macro/heatmap?currency=ZAR").json()["rows"] if x["indicator"] == "ZA_GDP_QOQ")
+    assert gdp["actual"] == 0.6 and gdp["forecast"] == 0.4 and gdp["currency_impact"] == "Bullish"
+    r = client.patch("/api/macro/indicators/ZA_GDP_QOQ", json={"field": "forecast", "value": "0.8", "period": "2026Q2"})
+    gdp = next(x for x in client.get("/api/macro/heatmap?currency=ZAR").json()["rows"] if x["indicator"] == "ZA_GDP_QOQ")
+    assert gdp["forecast"] == 0.8 and gdp["currency_impact"] == "Bearish"
+    assert client.patch("/api/macro/indicators/ZA_GDP_QOQ", json={"field": "actual", "value": "1", "period": "2026-09"}).status_code == 400
+    assert client.patch("/api/macro/indicators/NOPE", json={"field": "actual", "value": "1"}).status_code == 404

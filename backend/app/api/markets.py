@@ -257,6 +257,30 @@ class SurveyEditIn(BaseModel):
     reason: str | None = None
 
 
+class IndicatorEditIn(BaseModel):
+    field: str = "actual"
+    value: str | float | None = None
+    period: str | None = None
+    reason: str | None = None
+
+
+@router.patch("/macro/indicators/{code}")
+def macro_indicator_edit(code: str, body: IndicatorEditIn, db: Session = Depends(get_db),
+                         user_id: int = Depends(current_user_id)):
+    """Type an actual, forecast or previous for any indicator from the heatmap."""
+    from app.services import macro_edit
+    from app.services import manual_service as ms
+
+    try:
+        return macro_edit.edit(db, code, body.field, body.value, body.period, body.reason, user_id)
+    except ms.CommitBlocked as exc:
+        raise HTTPException(422, {"message": "Check this value", "problems": exc.problems})
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @router.patch("/macro/surveys/{code}")
 def macro_survey_edit(code: str, body: SurveyEditIn, db: Session = Depends(get_db),
                       user_id: int = Depends(current_user_id)):

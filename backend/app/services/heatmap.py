@@ -59,6 +59,7 @@ def _pts(call: str) -> int:
 
 
 def rows_for(db: Session, currency: str, now: datetime | None = None) -> list[dict]:
+    from app.services import macro_edit
     from app.services import surveys  # PMIs and consumer confidence get their own reading (see below)
 
     now = now or datetime.now(timezone.utc)
@@ -69,13 +70,21 @@ def rows_for(db: Session, currency: str, now: datetime | None = None) -> list[di
         kind = surveys.kind_of(ind)
         rel = da.latest_current(db, ind.id)
         if rel is None:
-            if kind:  # surveys are always listed so a reading can be typed straight in
-                out.append({"indicator": ind.code, "name": ind.name, "category": ind.category,
-                            "importance": ind.importance, "period": None, "date": None, "new": False,
-                            "surprise": None, "actual": None, "forecast": None, "previous": None,
-                            "unit": ind.unit, "higher_is": ind.higher_is, "currency_impact": "Neutral",
-                            "stocks_impact": "Neutral", "status": None, "event_id": None, "survey": kind,
-                            "frequency": ind.frequency, "lean": None, "read": "No reading yet"})
+            # every indicator is listed, so a number the feeds can't fetch can be typed straight in;
+            # if the calendar already has an event for it, that period and its forecast are used
+            ev = db.scalar(select(EconomicEvent).where(EconomicEvent.indicator_id == ind.id,
+                                                       EconomicEvent.scheduled_at <= now + timedelta(days=1))
+                           .order_by(EconomicEvent.scheduled_at.desc()))
+            out.append({"indicator": ind.code, "name": ind.name, "category": ind.category,
+                        "importance": ind.importance, "period": ev.reference_period if ev else None,
+                        "date": _aware(ev.scheduled_at) if ev else None, "new": False,
+                        "surprise": None, "actual": None, "forecast": ev.consensus if ev else None,
+                        "previous": ev.previous if ev else None,
+                        "unit": ind.unit, "higher_is": ind.higher_is, "currency_impact": "Neutral",
+                        "stocks_impact": "Neutral", "status": None, "event_id": ev.id if ev else None,
+                        "survey": kind, "frequency": ind.frequency, "lean": None,
+                        "edit_period": ev.reference_period if ev else macro_edit.default_period(ind),
+                        "read": "No reading yet"})
             continue
         ev = db.get(EconomicEvent, rel.event_id) if rel.event_id else da.event_for(db, ind.id, rel.reference_period)
         forecast = rel.consensus if rel.consensus is not None else (ev.consensus if ev else None)
@@ -108,8 +117,10 @@ def rows_for(db: Session, currency: str, now: datetime | None = None) -> list[di
             "surprise": surprise, "actual": rel.actual, "forecast": forecast, "previous": previous,
             "unit": ind.unit, "higher_is": ind.higher_is,
             "currency_impact": cur, "stocks_impact": stocks_call(cur, ind.category),
-            "status": rel.verification_status, "event_id": ev.id if ev else None, **extra,
+            "status": rel.verification_status, "event_id": ev.id if ev else None,
+            "frequency": ind.frequency, "edit_period": rel.reference_period, **extra,
         })
+    out.sort(key=lambda r: r["actual"] is None)  # readings first, then the ones still to fill in
     return out
 
 
