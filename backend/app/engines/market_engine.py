@@ -235,6 +235,7 @@ def rates_overview(db: Session) -> list[dict]:
                     "prob_cut": rx.prob_cut if rx else None, "prob_hold": rx.prob_hold if rx else None,
                     "prob_hike": rx.prob_hike if rx else None,
                     "implied_12m_change_bps": snap.implied_change_bps, "implied_is_proxy": snap.implied_is_proxy,
+                    "implied_tenor": snap.implied_tenor if snap.implied_is_proxy else None,
                     "as_of": rx.ts if rx else None})
     return out
 

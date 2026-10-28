@@ -167,7 +167,7 @@ export default function Home() {
                   <td>{r.central_bank}</td><td>{num(r.policy_rate, 2, "%")}</td>
                   <td>{num(r.prob_cut, 0, "%")}</td><td>{num(r.prob_hold, 0, "%")}</td><td>{num(r.prob_hike, 0, "%")}</td>
                   <td className={toneClass(r.implied_12m_change_bps)}>{signed(r.implied_12m_change_bps, 0, " bp")}
-                    {r.implied_is_proxy && <span className="ml-1 text-xs text-muted" title="2Y yield minus policy rate">proxy</span>}</td>
+                    {r.implied_is_proxy && <span className="ml-1 text-xs text-muted" title={`${r.implied_tenor || "2Y"} government yield minus policy rate`}>proxy{r.implied_tenor === "5Y" ? " (5Y)" : ""}</span>}</td>
                 </tr>
               ))}
             </tbody>

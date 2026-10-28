@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.ingestion import central_banks, forexfactory, fred, markets, official
+from app.ingestion import central_banks, forexfactory, fred, markets, official, yields
 from app.ingestion.base import run_source
 from app.services import cot, news, retail, risk_sentiment, seasonality
 
@@ -25,6 +25,7 @@ JOBS = {
     "seasonality": seasonality.run_seasonality,
     "myfxbook": retail.run_myfxbook,
     "news": news.run_news,
+    "yields": yields.run_yields,
 }
 
 

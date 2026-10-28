@@ -56,6 +56,8 @@ SOURCES = [
      "https://fred.stlouisfed.org", None, None, 10080, {}),
     ("myfxbook", "Myfxbook retail sentiment (Community Outlook)", "2", "api", "https://www.myfxbook.com",
      None, None, 360, {}),
+    ("yields", "Euro area (ECB) and UK (Bank of England) government bond yields", "1", "api",
+     "https://data.ecb.europa.eu", None, None, 1440, {}),
     ("news", "News headlines (central bank RSS, FXStreet, Investing.com, Finnhub)", "3", "rss", None, None, None,
      60, {}),
     ("twelvedata", "Twelve Data market prices", "2", "api", "https://twelvedata.com", None, None, 15, {}),

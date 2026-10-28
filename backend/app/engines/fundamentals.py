@@ -58,6 +58,7 @@ class Snapshot:
     policy_rate: float | None = None
     implied_change_bps: float | None = None
     implied_is_proxy: bool = False
+    implied_tenor: str | None = "2Y"     # which yield the proxy uses (2Y, or 5Y where no 2Y exists)
     prob_cut: float | None = None
     prob_hike: float | None = None
     inflation: float | None = None
@@ -216,8 +217,13 @@ def build(db: Session, currency: str) -> Snapshot:
         old = latest_yield(db, yc, "2Y", before=y2.ts - timedelta(days=30))
         if old:
             snap.y2_change_1m_bps = round((y2.yield_pct - old.yield_pct) * 100, 1)
-    if snap.implied_change_bps is None and snap.y2 is not None and snap.policy_rate is not None:
-        snap.implied_change_bps = round((snap.y2 - snap.policy_rate) * 100)
+    short = snap.y2
+    if short is None:  # e.g. GBP: the Bank of England publishes 5-year gilt yields but no 2-year
+        y5 = latest_yield(db, yc, "5Y")
+        short = y5.yield_pct if y5 else None
+        snap.implied_tenor = "5Y" if y5 else None
+    if snap.implied_change_bps is None and short is not None and snap.policy_rate is not None:
+        snap.implied_change_bps = round((short - snap.policy_rate) * 100)
         snap.implied_is_proxy = True
     snap.surprise_index = surprise_index(db, country)
     return snap
