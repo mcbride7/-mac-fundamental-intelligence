@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
+import NavMenu from "@/components/NavMenu";
 import ThemePicker from "@/components/ThemePicker";
 import { api, logout } from "@/lib/api";
 
@@ -79,14 +80,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             <span className="block text-sm text-muted">Intelligence</span>
           </Link>
         </div>
-        <nav aria-label="Main" className="flex flex-col px-2 pb-6">
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href} onClick={() => setOpen(false)}
-              className={`rounded px-3 py-1.5 text-sm ${active(n.href) ? "bg-panel-2 text-text" : "text-muted hover:text-text"}`}>
-              {n.label}
-            </Link>
-          ))}
-        </nav>
+        <NavMenu nav={NAV} active={active} onNavigate={() => setOpen(false)} />
         {/* which code this page was built from, so you can check a Railway deploy took effect */}
         <p className="px-5 pb-5 text-xs text-muted" title="Website version (the GitHub commit it was built from)">
           Version {BUILD}
