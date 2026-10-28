@@ -63,15 +63,18 @@ def run_source(db: Session, key: str, fn: Callable[[Session, Source], int]) -> d
     db.commit()
     try:
         n = fn(db, src)
+        warning = None
+        if isinstance(n, tuple):  # (records, warning): worked, but part of it failed
+            n, warning = n
         src, h = _health(db, key)
         h.status = SourceStatus.OK.value
         h.last_success_at = utcnow()
         h.retries = 0
-        h.last_error = None
+        h.last_error = warning
         h.records_last_run = n
         h.expected_next_at = utcnow() + timedelta(minutes=src.freshness_minutes or 60)
         db.commit()
-        return {"source": key, "status": "OK", "records": n}
+        return {"source": key, "status": "OK", "records": n, **({"warning": warning} if warning else {})}
     except Exception as exc:
         db.rollback()
         src, h = _health(db, key)

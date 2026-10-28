@@ -56,7 +56,7 @@ SOURCES = [
      "https://fred.stlouisfed.org", None, None, 10080, {}),
     ("myfxbook", "Myfxbook retail sentiment (Community Outlook)", "2", "api", "https://www.myfxbook.com",
      None, None, 360, {}),
-    ("yields", "Euro area (ECB) and UK (Bank of England) government bond yields", "1", "api",
+    ("yields", "Government bond yields: euro area, UK, Canada, Australia, Japan, Switzerland (official, daily)", "1", "api",
      "https://data.ecb.europa.eu", None, None, 1440, {}),
     ("news", "News headlines (central bank RSS, FXStreet, Investing.com, Finnhub)", "3", "rss", None, None, None,
      60, {}),
@@ -259,6 +259,8 @@ def seed(db: Session) -> None:
             db.add(src)
             db.flush()
             db.add(SourceHealth(source_id=src.id))
+        elif src.name != name:
+            src.name = name  # keep descriptions current when a feed gains coverage
     for row in INDICATORS:
         (code, name, country, ccy, cat, unit, freq, imp, tr, hi, aliases, fred, off, cb, pv) = row
         ind = db.scalar(select(Indicator).where(Indicator.code == code))
