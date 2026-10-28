@@ -6,6 +6,7 @@ import { useState } from "react";
 import CbShortcuts from "@/components/CbShortcuts";
 import QuickEdit from "@/components/QuickEdit";
 import StatementCompare, { StatementReader } from "@/components/StatementCompare";
+import PricingLinks from "@/components/PricingLinks";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, PolicyDial, Stat, StatusBadge } from "@/components/ui";
 import { patch, post, useApi } from "@/lib/api";
 import { date, dateTime, num, signed, toneClass } from "@/lib/format";
@@ -290,12 +291,13 @@ function Expectations({ d }: { d: any }) {
   };
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      <Panel title="Where to check the market's odds" className="lg:col-span-2"><PricingLinks code={d.code} name={d.name} /></Panel>
       <Panel title="Market pricing for the next meeting">
         {m ? (
           <div className="grid grid-cols-3 gap-4">
             <Stat label="Cut" value={num(m.prob_cut, 0, "%")} /><Stat label="Hold" value={num(m.prob_hold, 0, "%")} />
             <Stat label="Hike" value={num(m.prob_hike, 0, "%")} />
-            <Stat label="Implied 12m change" value={signed(m.implied_12m_change_bps, 0, " bp")} sub={m.proxy ? "Proxy: 2Y yield minus policy rate" : m.source} />
+            <Stat label="Implied 12m change" value={signed(m.implied_12m_change_bps, 0, " bp")} sub={m.proxy ? `Proxy: ${d.code === "BOE" ? "5Y" : "2Y"} yield minus policy rate` : m.source} />
             {m.as_of && <Stat label="As of" value={dateTime(m.as_of)} />}
           </div>
         ) : <p className="text-sm text-muted">No pricing stored.</p>}
