@@ -16,7 +16,7 @@ const MEASURES = [
 ] as const;
 type Measure = (typeof MEASURES)[number]["key"];
 const WEEKS = [13, 26, 52, 0] as const;
-const C = { spec: "#5b8def", comm: "#e2a03f", small: "#9aa5b5", long: "#43a047", short: "#e53935", oi: "#8e7cc3", price: "#e8e8e8" };
+const C = { spec: "var(--color-line-a)", comm: "var(--color-line-b)", small: "var(--color-muted)", long: "var(--color-good)", short: "var(--color-bad)", oi: "#8e7cc3", price: "var(--color-text)" };
 
 function compact(n: number | null | undefined): string {
   if (n === null || n === undefined) return "—";
@@ -36,10 +36,10 @@ const shortDate = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString(u
 
 function idxClass(v: number | null | undefined) {
   if (v === null || v === undefined) return "text-muted";
-  if (v >= 90) return "bg-[#43a047]/80 text-white";
-  if (v <= 10) return "bg-[#e53935]/80 text-white";
-  if (v >= 75) return "bg-[#43a047]/30";
-  if (v <= 25) return "bg-[#e53935]/30";
+  if (v >= 90) return "bg-good/80 text-white";
+  if (v <= 10) return "bg-bad/80 text-white";
+  if (v >= 75) return "bg-good/30";
+  if (v <= 25) return "bg-bad/30";
   return "";
 }
 
@@ -189,7 +189,7 @@ export default function CotPage() {
               <>
                 <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
                   <Stat label="Speculators net" value={signed(m.spec_net)} sub={m.spec_long_pct != null ? `${m.spec_long_pct}% of spec positions long` : undefined} />
-                  <Stat label="Week change" value={signed(m.spec_change)} cls={m.spec_change > 0 ? "text-[#9ccc65]" : m.spec_change < 0 ? "text-[#ff7b7b]" : ""} />
+                  <Stat label="Week change" value={signed(m.spec_change)} cls={m.spec_change > 0 ? "text-up" : m.spec_change < 0 ? "text-bear-soft" : ""} />
                   <Stat label="COT index (52w)" value={m.cot_index_52 ?? "—"} cls={idxClass(m.cot_index_52)}
                     sub={m.cot_index_156 != null ? `3-year: ${m.cot_index_156}` : "0 = most short, 100 = most long"} />
                   <Stat label="Commercials net" value={signed(m.comm_net)} sub={m.comm_index_52 != null ? `index ${m.comm_index_52}` : undefined} />
@@ -201,7 +201,7 @@ export default function CotPage() {
                 {m.signals?.length > 0 && (
                   <ul className="mt-4 space-y-2">
                     {m.signals.map((s: any) => (
-                      <li key={s.kind} className={`rounded border-l-4 bg-panel-2/60 px-3 py-2 text-sm ${s.tone === "warn" ? "border-amber" : s.tone === "ok" ? "border-[#43a047]" : "border-verify"}`}>{s.text}</li>
+                      <li key={s.kind} className={`rounded border-l-4 bg-panel-2/60 px-3 py-2 text-sm ${s.tone === "warn" ? "border-amber" : s.tone === "ok" ? "border-good" : "border-verify"}`}>{s.text}</li>
                     ))}
                   </ul>
                 )}
@@ -221,7 +221,7 @@ export default function CotPage() {
                       className={`cursor-pointer hover:bg-panel-2/60 ${x.code === code ? "bg-panel-2/60" : ""}`}>
                       <td className="whitespace-nowrap">{x.name}</td>
                       <td className="text-right tabular-nums">{signed(x.spec_net)}</td>
-                      <td className={`text-right tabular-nums ${x.spec_change > 0 ? "text-[#9ccc65]" : x.spec_change < 0 ? "text-[#ff7b7b]" : ""}`}>{signed(x.spec_change)}</td>
+                      <td className={`text-right tabular-nums ${x.spec_change > 0 ? "text-up" : x.spec_change < 0 ? "text-bear-soft" : ""}`}>{signed(x.spec_change)}</td>
                       <td className="text-right tabular-nums">{signed(x.comm_net)}</td>
                       <td className="text-center"><span className={`inline-block min-w-[2.6rem] rounded px-1.5 py-0.5 tabular-nums ${idxClass(x.cot_index_52)}`}>{x.cot_index_52 ?? "—"}</span></td>
                       <td className="text-right tabular-nums">{x.spec_long_pct ?? "—"}</td>
@@ -271,7 +271,7 @@ function Ledger({ m, onSaved }: { m: any; onSaved: () => void }) {
               <td className="text-right tabular-nums">{r.ncl.toLocaleString()}</td>
               <td className="text-right tabular-nums">{r.ncs.toLocaleString()}</td>
               <td className="text-right font-medium tabular-nums">{r.spec_net.toLocaleString()}</td>
-              <td className={`text-right tabular-nums ${r.spec_change > 0 ? "text-[#9ccc65]" : r.spec_change < 0 ? "text-[#ff7b7b]" : ""}`}>{r.spec_change == null ? "—" : `${r.spec_change > 0 ? "+" : ""}${r.spec_change.toLocaleString()}`}</td>
+              <td className={`text-right tabular-nums ${r.spec_change > 0 ? "text-up" : r.spec_change < 0 ? "text-bear-soft" : ""}`}>{r.spec_change == null ? "—" : `${r.spec_change > 0 ? "+" : ""}${r.spec_change.toLocaleString()}`}</td>
               <td className="text-right tabular-nums">{r.cl.toLocaleString()}</td>
               <td className="text-right tabular-nums">{r.cs.toLocaleString()}</td>
               <td className="text-right tabular-nums">{r.comm_net.toLocaleString()}</td>

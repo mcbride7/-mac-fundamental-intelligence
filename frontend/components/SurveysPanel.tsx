@@ -7,11 +7,11 @@ import QuickEdit from "@/components/QuickEdit";
 import { ErrorBox, Loading, Panel } from "@/components/ui";
 import { patch, useApi } from "@/lib/api";
 
-const BLUE = "#3d4fd6", RED = "#e45d5d";
+const BLUE = "var(--color-bull)", RED = "var(--color-bear)";
 const KINDS: [string, string][] = [["mpmi", "Manufacturing PMI"], ["spmi", "Services PMI"], ["conf", "Consumer confidence"]];
 const LEAN_CLS: Record<string, string> = {
-  "Bullish": "bg-[#3d4fd6] text-white", "Leaning bullish": "bg-[#3d4fd6]/60 text-white",
-  "Bearish": "bg-[#e45d5d] text-white", "Leaning bearish": "bg-[#e45d5d]/60 text-white",
+  "Bullish": "bg-bull text-white", "Leaning bullish": "bg-bull/60 text-white",
+  "Bearish": "bg-bear text-white", "Leaning bearish": "bg-bear/60 text-white",
 };
 
 function n(v: number | null | undefined, signed = false) {
@@ -81,11 +81,11 @@ export default function SurveysPanel() {
         <>
           <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {pmi ? <>
-              <Tile label="In expansion (above 50)" value={`${k.expanding} of ${k.with_data}`} cls="text-[#7d8cff]" />
-              <Tile label="In contraction (below 50)" value={`${k.contracting} of ${k.with_data}`} cls="text-[#ff7b7b]" />
+              <Tile label="In expansion (above 50)" value={`${k.expanding} of ${k.with_data}`} cls="text-bull-soft" />
+              <Tile label="In contraction (below 50)" value={`${k.contracting} of ${k.with_data}`} cls="text-bear-soft" />
             </> : <Tile label="Surveys with data" value={`${k.with_data} of ${k.rows.length}`} />}
-            <Tile label="Improving on last reading" value={String(k.improving)} cls="text-[#9ccc65]" />
-            <Tile label="Worsening on last reading" value={String(k.worsening)} cls="text-[#ff7b7b]" />
+            <Tile label="Improving on last reading" value={String(k.improving)} cls="text-up" />
+            <Tile label="Worsening on last reading" value={String(k.worsening)} cls="text-bear-soft" />
           </div>
           <div className="overflow-x-auto">
             <table className="grid-table min-w-[60rem]">
@@ -106,13 +106,13 @@ export default function SurveysPanel() {
                       <QuickEdit label={`${r.name} actual`} initial={r.actual != null ? String(r.actual) : ""}
                         period={{ value: r.next?.period && r.actual == null ? r.next.period : nextPeriod(r) , quarterly: r.frequency === "quarterly" }}
                         onSave={save(r.indicator)}
-                        display={<span className={r.actual == null ? "text-muted" : pmi ? (r.actual > 50 ? "text-[#7d8cff]" : r.actual < 50 ? "text-[#ff7b7b]" : "") : ""}>{r.actual == null ? "add" : n(r.actual)}</span>} />
+                        display={<span className={r.actual == null ? "text-muted" : pmi ? (r.actual > 50 ? "text-bull-soft" : r.actual < 50 ? "text-bear-soft" : "") : ""}>{r.actual == null ? "add" : n(r.actual)}</span>} />
                     </td>
                     <td className="text-right tabular-nums">{n(r.forecast)}</td>
                     <td className="text-right tabular-nums text-muted">{n(r.previous)}</td>
-                    <td className={`text-right tabular-nums ${r.change > 0 ? "text-[#9ccc65]" : r.change < 0 ? "text-[#ff7b7b]" : ""}`}>{n(r.change, true)}</td>
+                    <td className={`text-right tabular-nums ${r.change > 0 ? "text-up" : r.change < 0 ? "text-bear-soft" : ""}`}>{n(r.change, true)}</td>
                     {pmi && <td className="text-center">{r.actual == null ? "—" :
-                      <span className={`rounded px-1.5 py-0.5 text-xs ${r.actual > 50 ? "bg-[#3d4fd6]/25 text-[#9aa6ff]" : r.actual < 50 ? "bg-[#e45d5d]/25 text-[#ff9b9b]" : "bg-panel-2"}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-xs ${r.actual > 50 ? "bg-bull/25 text-bull-soft" : r.actual < 50 ? "bg-bear/25 text-bear-soft" : "bg-panel-2"}`}>
                         {r.actual > 50 ? "Expansion" : r.actual < 50 ? "Contraction" : "Flat"}</span>}</td>}
                     <td><Spark pts={r.history || []} pmi={pmi} /></td>
                     <td className="text-center">{r.lean ? <span className={`whitespace-nowrap rounded px-1.5 py-0.5 text-xs ${LEAN_CLS[r.lean] || "bg-panel-2 text-muted"}`}>{r.lean}</span> : "—"}</td>

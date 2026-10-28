@@ -3,7 +3,7 @@
 import StickyNote, { NOTE_INK } from "@/components/StickyNote";
 
 function Chip({ v }: { v: number }) {
-  const bg = v >= 2 ? "#3d4fd6" : v === 1 ? "#3d4fd6bb" : v === -1 ? "#e45d5dbb" : v <= -2 ? "#e45d5d" : "#ffffff";
+  const bg = v >= 2 ? "var(--color-bull)" : v === 1 ? "color-mix(in srgb, var(--color-bull) 73%, transparent)" : v === -1 ? "color-mix(in srgb, var(--color-bear) 73%, transparent)" : v <= -2 ? "var(--color-bear)" : "#ffffff";
   return (
     <span className="inline-block w-7 rounded text-center text-[0.7rem] font-semibold tabular-nums"
       style={{ background: bg, color: v === 0 ? NOTE_INK : "#fff", border: v === 0 ? "1px solid #d8cb7a" : undefined }}>

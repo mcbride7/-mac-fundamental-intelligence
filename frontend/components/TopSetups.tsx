@@ -6,10 +6,10 @@ import QuickEdit from "@/components/QuickEdit";
 import { Empty, ErrorBox, Loading } from "@/components/ui";
 import { put, useApi } from "@/lib/api";
 
-const GREEN = "#43a047", RED = "#e53935";
+const GREEN = "var(--color-good)", RED = "var(--color-bad)";
 
 function GradeChip({ grade }: { grade: string }) {
-  const cls = grade === "A+" ? "bg-[#43a047] text-white" : grade === "A" ? "bg-[#43a047]/70 text-white"
+  const cls = grade === "A+" ? "bg-good text-white" : grade === "A" ? "bg-good/70 text-white"
     : grade === "B" ? "bg-amber/80 text-ink" : grade === "C" ? "border border-amber/70 text-amber" : "border border-line text-muted";
   return <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${cls}`}>{grade}</span>;
 }
@@ -28,7 +28,7 @@ function PillarBar({ v }: { v: number | null }) {
 
 export function SetupCard({ s, onRetail }: { s: any; onRetail?: () => void }) {
   const long = s.direction === "LONG", short = s.direction === "SHORT";
-  const dirCol = long ? "text-[#9ccc65]" : short ? "text-[#ff7b7b]" : "text-muted";
+  const dirCol = long ? "text-up" : short ? "text-bear-soft" : "text-muted";
   return (
     <article className="flex min-w-0 flex-col rounded-md border border-line bg-panel p-4">
       <header className="flex items-start justify-between gap-2">

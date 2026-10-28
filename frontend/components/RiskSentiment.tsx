@@ -19,8 +19,8 @@ function RiskChart({ hist, on, off }: { hist: { date: string; score: number }[];
     <figure>
       <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="none" role="img"
         aria-label={`Risk sentiment over the last ${hist.length} days, latest ${num(hist[hist.length - 1].score, 0)}`}>
-        <rect x="0" y="0" width={W} height={y(on)} fill="#43a047" opacity="0.14" />
-        <rect x="0" y={y(off)} width={W} height={H - y(off)} fill="#e53935" opacity="0.14" />
+        <rect x="0" y="0" width={W} height={y(on)} fill="var(--color-good)" opacity="0.14" />
+        <rect x="0" y={y(off)} width={W} height={H - y(off)} fill="var(--color-bad)" opacity="0.14" />
         <line x1="0" x2={W} y1={y(50)} y2={y(50)} stroke="currentColor" opacity="0.2" strokeDasharray="4 4" />
         <path d={path} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
@@ -30,7 +30,7 @@ function RiskChart({ hist, on, off }: { hist: { date: string; score: number }[];
   );
 }
 
-const GREEN = "#43a047", RED = "#e53935", MIXED = "#9aa5b5";
+const GREEN = "var(--color-good)", RED = "var(--color-bad)", MIXED = "var(--color-muted)";
 
 /** Round dial like a car gauge: Risk Off (red, left), Mixed (top), Risk On (green, right). */
 function RiskDial({ score, on, off }: { score: number; on: number; off: number }) {
@@ -89,7 +89,7 @@ type Frame = (typeof FRAMES)[number];
 function FrameTab({ f, active, onClick }: { f: Frame; active: boolean; onClick: () => void }) {
   const { data } = useApi<any>(`/api/macro/risk?horizon=${f.key}&days=10`);
   const c = data?.current;
-  const col = c?.label === "Risk-On" ? "#43a047" : c?.label === "Risk-Off" ? "#e53935" : "#9aa5b5";
+  const col = c?.label === "Risk-On" ? "var(--color-good)" : c?.label === "Risk-Off" ? "var(--color-bad)" : "var(--color-muted)";
   return (
     <button role="tab" aria-selected={active} onClick={onClick}
       className={`flex-1 rounded-md border px-3 py-2 text-left ${active ? "border-verify bg-panel-2" : "border-line hover:bg-panel-2/50"}`}>
@@ -111,7 +111,7 @@ function Tile({ t, period }: { t: any; period: string }) {
       <div className="mt-1 grid grid-cols-2 gap-2 text-[0.7rem] text-muted"><span>{t.unit === "%" ? "Yield" : "Price"}</span><span>{period}</span></div>
       <div className="grid grid-cols-2 gap-2 text-base tabular-nums sm:text-lg">
         <span>{t.price.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}{t.unit || ""}</span>
-        <span className={chg == null ? "text-muted" : chg < 0 ? "text-[#ff7b7b]" : "text-[#9ccc65]"}>
+        <span className={chg == null ? "text-muted" : chg < 0 ? "text-bear-soft" : "text-up"}>
           {chg == null ? "—" : t.change_bps != null ? `${chg > 0 ? "+" : ""}${chg.toFixed(0)} bp` : `${chg > 0 ? "+" : ""}${chg.toFixed(2)}%`}</span>
       </div>
     </div>
@@ -151,7 +151,7 @@ export default function RiskSentiment() {
   const { data, error, loading } = useApi<any>(`/api/macro/risk?horizon=${frame.key}`);
   const c = data?.current;
   const ev = data?.evaluation;
-  const biasColour = c?.label === "Risk-On" ? "text-[#9ccc65]" : c?.label === "Risk-Off" ? "text-[#ff7b7b]" : "text-muted";
+  const biasColour = c?.label === "Risk-On" ? "text-up" : c?.label === "Risk-Off" ? "text-bear-soft" : "text-muted";
   return (
     <Panel title={`${frame.name} Risk ON / Risk OFF`}>
       <div role="tablist" aria-label="Time frame" className="mb-5 flex gap-2">
@@ -184,7 +184,7 @@ export default function RiskSentiment() {
             </div>
           </div>
           {c.why && (
-            <div className={`mt-5 rounded border-l-4 bg-panel-2/60 px-4 py-3 text-sm ${c.label === "Risk-On" ? "border-[#43a047]" : c.label === "Risk-Off" ? "border-[#e53935]" : "border-[#9aa5b5]"}`}>
+            <div className={`mt-5 rounded border-l-4 bg-panel-2/60 px-4 py-3 text-sm ${c.label === "Risk-On" ? "border-good" : c.label === "Risk-Off" ? "border-bad" : "border-[#9aa5b5]"}`}>
               <span className="font-semibold">Why: </span>{c.why}
               {c.implication && <span className="mt-1 block text-muted">{c.implication}</span>}
             </div>
@@ -206,7 +206,7 @@ export default function RiskSentiment() {
                       <span className="absolute inset-y-0 rounded" style={{ background: k.score >= 0 ? GREEN : RED,
                         ...(k.score >= 0 ? { left: "50%", width: `${k.score / 2}%` } : { right: "50%", width: `${-k.score / 2}%` }) }} />
                     </span>
-                    <span className={`w-10 text-right tabular-nums ${k.score >= 0 ? "text-[#9ccc65]" : "text-[#ff7b7b]"}`}>{k.score > 0 ? "+" : ""}{num(k.score, 0)}</span>
+                    <span className={`w-10 text-right tabular-nums ${k.score >= 0 ? "text-up" : "text-bear-soft"}`}>{k.score > 0 ? "+" : ""}{num(k.score, 0)}</span>
                   </div>
                 </li>
               ))}

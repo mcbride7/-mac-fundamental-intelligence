@@ -7,22 +7,22 @@ import ScoreNote from "@/components/ScoreNote";
 import { ErrorBox, Loading } from "@/components/ui";
 import { useApi } from "@/lib/api";
 
-const BLUE = "#3d4fd6", RED = "#e45d5d";
+const BLUE = "var(--color-bull)", RED = "var(--color-bear)";
 const BIASES = ["Very Bullish", "Bullish", "Neutral", "Bearish", "Very Bearish"];
 
 function cell(v: number | null | undefined) {
   if (v === null || v === undefined) return { text: "", style: { color: "var(--color-muted)" } as React.CSSProperties };
   const strong = Math.abs(v) >= 2;
-  const style: React.CSSProperties = v > 0 ? { background: strong ? BLUE : `${BLUE}bb`, color: "#fff" }
-    : v < 0 ? { background: strong ? RED : `${RED}bb`, color: "#fff" } : {};
+  const style: React.CSSProperties = v > 0 ? { background: strong ? BLUE : `color-mix(in srgb, ${BLUE} 73%, transparent)`, color: "#fff" }
+    : v < 0 ? { background: strong ? RED : `color-mix(in srgb, ${RED} 73%, transparent)`, color: "#fff" } : {};
   return { text: `${v > 0 ? "+" : ""}${v}`, style };
 }
 
 function biasStyle(b: string): React.CSSProperties {
   if (b === "Very Bullish") return { background: BLUE, color: "#fff" };
-  if (b === "Bullish") return { background: `${BLUE}99`, color: "#fff" };
+  if (b === "Bullish") return { background: `color-mix(in srgb, ${BLUE} 60%, transparent)`, color: "#fff" };
   if (b === "Very Bearish") return { background: RED, color: "#fff" };
-  if (b === "Bearish") return { background: `${RED}99`, color: "#fff" };
+  if (b === "Bearish") return { background: `color-mix(in srgb, ${RED} 60%, transparent)`, color: "#fff" };
   return {};
 }
 
@@ -79,7 +79,7 @@ export default function SetupsTable({ limit }: { limit?: number }) {
               <th colSpan={4} className="bg-panel-2 px-2 py-1.5 text-center font-medium italic text-muted">Summary</th>
               {groups.map((g, i) => (
                 <th key={g.key} colSpan={g.columns.length}
-                  className={`px-2 py-1.5 text-center font-medium italic ${i === 0 ? "bg-[#e45d5d]/70 text-white" : "bg-[#3d4fd6]/80 text-white"}`}>{g.label}</th>
+                  className={`px-2 py-1.5 text-center font-medium italic ${i === 0 ? "bg-bear/70 text-white" : "bg-bull/80 text-white"}`}>{g.label}</th>
               ))}
             </tr>
             <tr className="border-b border-line text-[0.7rem] text-muted">
@@ -93,7 +93,7 @@ export default function SetupsTable({ limit }: { limit?: number }) {
           <tbody>
             {shown.map((r) => (
               <tr key={r.symbol} className="border-b border-line/60">
-                <td className={`px-1.5 py-1.5 text-center ${r.day_change > 0 ? "text-[#9ccc65]" : r.day_change < 0 ? "text-[#ff7b7b]" : "text-muted"}`}>
+                <td className={`px-1.5 py-1.5 text-center ${r.day_change > 0 ? "text-up" : r.day_change < 0 ? "text-bear-soft" : "text-muted"}`}>
                   {r.day_change == null ? "—" : `${r.day_change > 0 ? "+" : ""}${r.day_change_unit === "bp" ? r.day_change.toFixed(0) + " bp" : r.day_change.toFixed(2) + "%"}`}</td>
                 <td className="whitespace-nowrap px-1.5 py-1.5 font-semibold">
                   <Link href={r.symbol.length === 6 && !r.symbol.startsWith("X") ? `/analysis/${r.symbol}` : "/seasonality"} className="underline decoration-dotted underline-offset-2 hover:text-verify">{r.name}</Link>

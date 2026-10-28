@@ -6,7 +6,7 @@ import { Empty, ErrorBox, Loading, PageTitle, Panel } from "@/components/ui";
 import { useApi } from "@/lib/api";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const GREEN = "#43a047", RED = "#e53935";
+const GREEN = "var(--color-good)", RED = "var(--color-bad)";
 
 function mv(v: number | null | undefined, mode: string, dp = 2): string {
   if (v === null || v === undefined) return "—";
@@ -96,15 +96,15 @@ function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
           const d = pts.map((p, k) => `${k ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
           return (
             <g>
-              <path d={d} fill="none" stroke="#f2f2f2" strokeWidth="2.4" strokeLinejoin="round" />
+              <path d={d} fill="none" stroke="var(--color-text)" strokeWidth="2.4" strokeLinejoin="round" />
               {pts.map((p) => {
                 const now = p.i + 1 === current;
                 const above = p.v >= (months[p.i]?.avg ?? 0);
                 return (
                   <g key={p.i}>
-                    <circle cx={p.x} cy={p.y} r={now ? 5.5 : 4} fill={p.v >= 0 ? "#9ccc65" : "#ff7b7b"} stroke="#0f1726" strokeWidth="1.5" />
+                    <circle cx={p.x} cy={p.y} r={now ? 5.5 : 4} fill={p.v >= 0 ? "var(--color-up)" : "var(--color-bear-soft)"} stroke="var(--color-ink)" strokeWidth="1.5" />
                     <text x={p.x} y={above ? p.y - 9 : p.y + 16} fontSize="10" textAnchor="middle" fontWeight="600"
-                      fill={p.v >= 0 ? "#9ccc65" : "#ff7b7b"} paintOrder="stroke" stroke="#0f1726" strokeWidth="3">
+                      fill={p.v >= 0 ? "var(--color-up)" : "var(--color-bear-soft)"} paintOrder="stroke" stroke="var(--color-ink)" strokeWidth="3">
                       {label(p.v)}{now ? " now" : ""}</text>
                     <title>{`${MONTHS[p.i]} ${year}${now ? " so far" : ""}: ${mv(p.v, mode)} (average ${mv(months[p.i]?.avg, mode)})`}</title>
                   </g>
@@ -116,7 +116,7 @@ function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: GREEN }} /><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: RED }} />Average move (number on the bar)</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "#f2f2f2" }} />{year} line: this year&rsquo;s move each month (current month = so far)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-text)" }} />{year} line: this year&rsquo;s move each month (current month = so far)</span>
         <span>Bottom row: how often the month rose</span>
       </figcaption>
     </figure>
@@ -139,12 +139,12 @@ function PathChart({ path, mode }: { path: any; mode: string }) {
         <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="currentColor" opacity="0.3" />
         {[hi, (hi + lo) / 2, lo].map((t) => <text key={t} x={L - 6} y={y(t) + 4} fontSize="10.5" textAnchor="end" fill="currentColor" opacity="0.55">{mv(t, mode, 1)}</text>)}
         {MONTHS.map((m, i) => <text key={m} x={L + (i / 12) * iw + iw / 24} y={H - 6} fontSize="10.5" textAnchor="middle" fill="currentColor" opacity="0.6">{m}</text>)}
-        <path d={d(avg)} fill="none" stroke="#5b8def" strokeWidth="2.4" />
-        <path d={d(cur)} fill="none" stroke="#e2a03f" strokeWidth="2.2" />
+        <path d={d(avg)} fill="none" stroke="var(--color-line-a)" strokeWidth="2.4" />
+        <path d={d(cur)} fill="none" stroke="var(--color-line-b)" strokeWidth="2.2" />
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-4 text-xs text-muted">
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "#5b8def" }} />Average year ({path.years_used} years)</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "#e2a03f" }} />This year so far</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-line-a)" }} />Average year ({path.years_used} years)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-line-b)" }} />This year so far</span>
         <span>Move since the end of the previous year</span>
       </figcaption>
     </figure>
@@ -180,16 +180,16 @@ function PriceChart({ pc, mode }: { pc: any; mode: string }) {
         ))}
         {MONTHS.map((m, i) => <text key={m} x={L + (i / 12) * iw + iw / 24} y={H - 6} fontSize="10.5" textAnchor="middle" fill="currentColor" opacity="0.6">{m}</text>)}
         {at >= 0 && <line x1={x(at)} x2={x(at)} y1={T} y2={T + ih} stroke="currentColor" opacity="0.25" strokeDasharray="3 3" />}
-        <path d={d(seas)} fill="none" stroke="#5b8def" strokeWidth="2" opacity="0.9" />
-        <path d={d(proj)} fill="none" stroke="#e2a03f" strokeWidth="2" strokeDasharray="6 4" />
-        <path d={d(act)} fill="none" stroke="#f2f2f2" strokeWidth="2.4" />
-        {at >= 0 && act[at] != null && <circle cx={x(at)} cy={y(act[at] as number)} r="4" fill="#f2f2f2" />}
+        <path d={d(seas)} fill="none" stroke="var(--color-line-a)" strokeWidth="2" opacity="0.9" />
+        <path d={d(proj)} fill="none" stroke="var(--color-line-b)" strokeWidth="2" strokeDasharray="6 4" />
+        <path d={d(act)} fill="none" stroke="var(--color-text)" strokeWidth="2.4" />
+        {at >= 0 && act[at] != null && <circle cx={x(at)} cy={y(act[at] as number)} r="4" fill="var(--color-text)" />}
         {at >= 0 && act[at] != null && <text x={Math.min(x(at) + 6, W - R - 60)} y={y(act[at] as number) - 8} fontSize="11" fill="currentColor">{fmtPrice(pc.latest, mode)}</text>}
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "#f2f2f2" }} />Price this year</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "#5b8def" }} />Seasonal path (average year applied to last year&rsquo;s close)</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "#e2a03f" }} />Seasonal pattern from today&rsquo;s price</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-text)" }} />Price this year</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-line-a)" }} />Seasonal path (average year applied to last year&rsquo;s close)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "var(--color-line-b)" }} />Seasonal pattern from today&rsquo;s price</span>
       </figcaption>
     </figure>
   );
@@ -239,7 +239,7 @@ function Detail({ k, years, current, view, options, onPick }: {
       {sub && <div className="text-xs text-muted">{sub}</div>}
     </div>
   );
-  const biasCol = (b: string) => (b === "Bullish" ? "text-[#9ccc65]" : b === "Bearish" ? "text-[#ff7b7b]" : "text-muted");
+  const biasCol = (b: string) => (b === "Bullish" ? "text-up" : b === "Bearish" ? "text-bear-soft" : "text-muted");
   const statFor = (label: string, x: any) => x
     ? stat(label, <span className={biasCol(x.bias)}>{x.bias}</span>, x.n ? `avg ${mv(x.avg, a.mode)}, up ${x.win_rate}% of ${x.n} yrs` : undefined)
     : stat(label, "—", "needs daily prices");
@@ -261,7 +261,7 @@ function Detail({ k, years, current, view, options, onPick }: {
         <div>
           <h3 className="mb-1 font-medium">Price vs its seasonal trend</h3>
           {a.price_chart.note && (
-            <p className={`mb-2 rounded border-l-4 bg-panel-2/60 px-3 py-2 text-sm ${a.price_chart.gap > 0 ? "border-[#43a047]" : a.price_chart.gap < 0 ? "border-[#e53935]" : "border-line"}`}>{a.price_chart.note}</p>
+            <p className={`mb-2 rounded border-l-4 bg-panel-2/60 px-3 py-2 text-sm ${a.price_chart.gap > 0 ? "border-good" : a.price_chart.gap < 0 ? "border-bad" : "border-line"}`}>{a.price_chart.note}</p>
           )}
           <div className="overflow-x-auto"><PriceChart pc={a.price_chart} mode={a.mode} /></div>
         </div>
@@ -297,7 +297,7 @@ function Detail({ k, years, current, view, options, onPick }: {
                   <td className="px-1.5 py-1 font-medium">{r.year}</td>
                   {r.months.map((v: number | null, i: number) => (
                     <td key={i} className="px-1.5 py-1 text-right"
-                      style={v === null ? {} : { color: v > 0 ? "#9ccc65" : v < 0 ? "#ff7b7b" : undefined }}>{v === null ? "" : mv(v, a.mode, 1)}</td>
+                      style={v === null ? {} : { color: v > 0 ? "var(--color-up)" : v < 0 ? "var(--color-bear-soft)" : undefined }}>{v === null ? "" : mv(v, a.mode, 1)}</td>
                   ))}
                 </tr>
               ))}

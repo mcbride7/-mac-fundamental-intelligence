@@ -10,11 +10,11 @@ import { patch, useApi } from "@/lib/api";
 import { dateTime, num } from "@/lib/format";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "ZAR", "MXN", "CNY"];
-const BULL = "bg-[#3d4fd6] text-white";
-const BEAR = "bg-[#e45d5d] text-white";
+const BULL = "bg-bull text-white";
+const BEAR = "bg-bear text-white";
 const NEUTRAL = "bg-panel-2 text-muted";
 const cellFor = (call: string) => (call === "Bullish" ? BULL : call === "Bearish" ? BEAR : NEUTRAL);
-const textFor = (call: string) => (call === "Bullish" ? "text-[#7d8cff]" : call === "Bearish" ? "text-[#ff7b7b]" : "");
+const textFor = (call: string) => (call === "Bullish" ? "text-bull-soft" : call === "Bearish" ? "text-bear-soft" : "");
 
 function fmt(v: number | null | undefined, unit: string, signed = false): string {
   if (v === null || v === undefined) return "—";
@@ -50,8 +50,8 @@ function Gauge({ pct, label, suffix = "%" }: { pct: number | null; label: string
   return (
     <figure className="flex flex-col items-center">
       <svg viewBox="0 0 120 72" className="w-36" role="img" aria-label={`${label}: ${pct === null ? "no data" : `${num(pct, 0)}% bullish`}`}>
-        <path d="M 10 62 A 50 50 0 0 1 60 12" fill="none" stroke="#e45d5d" strokeWidth="10" />
-        <path d="M 60 12 A 50 50 0 0 1 110 62" fill="none" stroke="#3d4fd6" strokeWidth="10" />
+        <path d="M 10 62 A 50 50 0 0 1 60 12" fill="none" stroke="var(--color-bear)" strokeWidth="10" />
+        <path d="M 60 12 A 50 50 0 0 1 110 62" fill="none" stroke="var(--color-bull)" strokeWidth="10" />
         <line x1="60" y1="62" x2={x} y2={y} stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
         <circle cx="60" cy="62" r="4" fill="currentColor" />
       </svg>
@@ -106,7 +106,7 @@ function ScoreTable({ title, head, rows }: { title: string; head: string; rows: 
         <thead><tr className="bg-panel-2 text-xs text-muted"><th className="px-3 py-2 text-left font-medium">{title}</th>
           <th className="px-3 py-2 text-right font-medium">{head}</th></tr></thead>
         <tbody>{rows.map((r) => (
-          <tr key={r.name} className={`border-t border-line ${r.score > 0 ? "bg-[#3d4fd6]/35" : r.score < 0 ? "bg-[#e45d5d]/30" : ""}`} title={r.note}>
+          <tr key={r.name} className={`border-t border-line ${r.score > 0 ? "bg-bull/35" : r.score < 0 ? "bg-bear/30" : ""}`} title={r.note}>
             <td className="px-3 py-1.5 font-medium">{r.name}</td><td className="px-3 py-1.5 text-right tabular-nums">{r.score > 0 ? `+${r.score}` : r.score}</td>
           </tr>))}
           {!rows.length && <tr><td colSpan={2} className="px-3 py-2 text-muted">No other currency has data yet.</td></tr>}
@@ -138,7 +138,7 @@ function Heatmap() {
           return (
             <button key={c} role="tab" aria-selected={ccy === c} onClick={() => setCcy(c)}
               className={`rounded border px-3 py-1.5 text-sm ${ccy === c ? "border-verify bg-panel-2 text-text" : "border-line text-muted hover:text-text"}`}>
-              {c}{t && t.rows > 0 && <span className={`ml-1.5 text-xs ${t.score > 0 ? "text-[#7d8cff]" : t.score < 0 ? "text-[#ff7b7b]" : "text-muted"}`}>
+              {c}{t && t.rows > 0 && <span className={`ml-1.5 text-xs ${t.score > 0 ? "text-bull-soft" : t.score < 0 ? "text-bear-soft" : "text-muted"}`}>
                 {t.score > 0 ? `+${t.score}` : t.score}</span>}
             </button>
           );
@@ -170,7 +170,7 @@ function Heatmap() {
                         {r.event_id ? <Link href={`/calendar/${r.event_id}`} className="hover:underline">{r.name}</Link> : r.name}
                         {r.period && <span className="ml-1 text-xs text-muted">{r.period}</span>}
                         {r.survey && r.survey !== "conf" && r.actual != null && (
-                          <span className={`ml-1.5 rounded px-1 py-px text-[0.65rem] ${r.actual > 50 ? "bg-[#3d4fd6]/25 text-[#9aa6ff]" : r.actual < 50 ? "bg-[#e45d5d]/25 text-[#ff9b9b]" : "bg-panel-2 text-muted"}`}>
+                          <span className={`ml-1.5 rounded px-1 py-px text-[0.65rem] ${r.actual > 50 ? "bg-bull/25 text-bull-soft" : r.actual < 50 ? "bg-bear/25 text-bear-soft" : "bg-panel-2 text-muted"}`}>
                             {r.actual > 50 ? "Expansion" : r.actual < 50 ? "Contraction" : "50"}</span>)}
                       </div>
                       {r.survey && <div className="truncate text-xs text-muted">{r.read || ""}</div>}</td>

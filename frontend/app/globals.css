@@ -13,6 +13,16 @@
   --color-dove: #3db58a;
   --color-amber: #e2b14a;
   --color-verify: #6fa8e6;
+  /* signal colours (switchable themes override all of these at runtime, see lib/themes.ts) */
+  --color-bull: #3d4fd6;
+  --color-bear: #e45d5d;
+  --color-bull-soft: #9aa6ff;
+  --color-bear-soft: #ff8a8a;
+  --color-up: #9ccc65;
+  --color-good: #43a047;
+  --color-bad: #e53935;
+  --color-line-a: #5b8def;
+  --color-line-b: #e2a03f;
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "IBM Plex Serif", ui-serif, Georgia, serif;
 }
@@ -24,6 +34,7 @@
 html,
 body {
   background: var(--color-ink);
+  transition: background-color 0.2s ease, color 0.2s ease;
   color: var(--color-text);
   font-family: var(--font-sans);
   font-feature-settings: "tnum" 1;

@@ -9,8 +9,8 @@ import { post, useApi } from "@/lib/api";
 const CCYS = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "ZAR", "MXN", "CNY", "XAU", "OIL"];
 const LABEL: Record<string, string> = { XAU: "Gold", OIL: "Oil" };
 const TONE_CLS: Record<string, string> = {
-  hawkish: "bg-[#3d4fd6]/25 text-[#9aa6ff]", dovish: "bg-[#e45d5d]/25 text-[#ff9b9b]",
-  risk_on: "bg-[#43a047]/25 text-[#9ccc65]", risk_off: "bg-amber/20 text-amber",
+  hawkish: "bg-bull/25 text-bull-soft", dovish: "bg-bear/25 text-bear-soft",
+  risk_on: "bg-good/25 text-up", risk_off: "bg-amber/20 text-amber",
 };
 
 function ago(iso: string) {
@@ -30,7 +30,7 @@ function Breakdown({ pick, data, onClose, onFilter }: { pick: string; data: any;
   const name = risk ? "Risk mood" : LABEL[pick] || pick;
   const line = (b: any) => (
     <li key={b.id} className="flex items-start gap-2 py-1.5">
-      <span className={`mt-0.5 inline-block w-8 shrink-0 rounded text-center text-xs font-semibold tabular-nums ${b.points > 0 ? (risk ? "bg-[#43a047] text-white" : "bg-[#3d4fd6] text-white") : b.points < 0 ? (risk ? "bg-[#c98a00] text-white" : "bg-[#e45d5d] text-white") : "bg-panel-2 text-muted"}`}>
+      <span className={`mt-0.5 inline-block w-8 shrink-0 rounded text-center text-xs font-semibold tabular-nums ${b.points > 0 ? (risk ? "bg-good text-white" : "bg-bull text-white") : b.points < 0 ? (risk ? "bg-amber text-white" : "bg-bear text-white") : "bg-panel-2 text-muted"}`}>
         {b.points > 0 ? `+${b.points}` : b.points}</span>
       <span className="min-w-0">
         {b.url ? <a href={b.url} target="_blank" rel="noreferrer" className="hover:text-verify hover:underline">{b.title}</a> : b.title}
@@ -97,13 +97,13 @@ export default function NewsPage() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                 {CCYS.map((c) => {
                   const t = data.tone[c];
-                  const cls = t.lean === "Hawkish" ? "border-[#3d4fd6] bg-[#3d4fd6]/15" : t.lean === "Dovish" ? "border-[#e45d5d] bg-[#e45d5d]/15" : "border-line";
+                  const cls = t.lean === "Hawkish" ? "border-bull bg-bull/15" : t.lean === "Dovish" ? "border-bear bg-bear/15" : "border-line";
                   return (
                     <button key={c} onClick={() => setPick(pick === c ? "" : c)} aria-expanded={pick === c}
                       title={`See which headlines make up ${LABEL[c] || c}'s score`}
                       className={`rounded border px-3 py-2 text-left hover:bg-panel-2 ${cls} ${pick === c ? "ring-2 ring-verify" : ""}`}>
                       <div className="flex items-baseline justify-between"><span className="font-semibold">{LABEL[c] || c}</span>
-                        <span className={`text-sm tabular-nums ${t.net > 0 ? "text-[#9aa6ff]" : t.net < 0 ? "text-[#ff9b9b]" : "text-muted"}`}>{t.net > 0 ? "+" : ""}{t.net}</span></div>
+                        <span className={`text-sm tabular-nums ${t.net > 0 ? "text-bull-soft" : t.net < 0 ? "text-bear-soft" : "text-muted"}`}>{t.net > 0 ? "+" : ""}{t.net}</span></div>
                       <div className="text-xs text-muted">{c === "XAU" || c === "OIL" ? `${t.articles} headlines` : `${t.lean} · ${t.hawkish}↑ ${t.dovish}↓`}</div>
                     </button>
                   );
@@ -111,7 +111,7 @@ export default function NewsPage() {
               </div>
               <p className="mt-3 text-sm">Risk mood in the headlines:{" "}
                 <button onClick={() => setPick(pick === "RISK" ? "" : "RISK")} aria-expanded={pick === "RISK"} className="underline decoration-dotted underline-offset-2">
-                  <b className={data.risk.lean === "Risk-off" ? "text-amber" : data.risk.lean === "Risk-on" ? "text-[#9ccc65]" : ""}>{data.risk.lean}</b>
+                  <b className={data.risk.lean === "Risk-off" ? "text-amber" : data.risk.lean === "Risk-on" ? "text-up" : ""}>{data.risk.lean}</b>
                   <span className="text-muted"> ({data.risk.risk_on} risk-on, {data.risk.risk_off} risk-off)</span></button></p>
               {pick && <Breakdown pick={pick} data={data} onClose={() => setPick("")}
                 onFilter={() => { if (pick !== "RISK") { setCcy(pick); setDays(3); } else { setTone(""); } setPick(""); }} />}

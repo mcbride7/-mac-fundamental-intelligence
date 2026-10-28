@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
+import ThemePicker from "@/components/ThemePicker";
 import { api, logout } from "@/lib/api";
 
 const NAV: { href: string; label: string }[] = [
@@ -97,6 +98,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             aria-expanded={open}>Menu</button>
           <DataStatus />
           <div className="flex items-center gap-2">
+            <ThemePicker />
             <Link href="/data-input" className="whitespace-nowrap rounded bg-verify px-3 py-1.5 text-sm font-medium text-ink hover:bg-verify/90">
               + Add data
             </Link>

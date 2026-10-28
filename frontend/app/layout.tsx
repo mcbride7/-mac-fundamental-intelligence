@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import Shell from "@/components/Shell";
+import { EARLY_SCRIPT } from "@/lib/themes";
 
 import "./globals.css";
 
@@ -14,8 +15,10 @@ export const viewport: Viewport = { themeColor: "#0f1c2e", width: "device-width"
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        {/* apply the saved colour theme before the first paint */}
+        <script dangerouslySetInnerHTML={{ __html: EARLY_SCRIPT }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link

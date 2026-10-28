@@ -13,11 +13,11 @@ export default function NewsNote() {
       moreLabel="What the tags mean ▸" lessLabel="Hide the tag guide" hang={false}
       more={
         <ul className="space-y-1">
-          <li><Tag cls="bg-[#3d4fd6]">Hawkish</Tag> rate hikes, tightening, hot inflation, strong data: supports the currency.</li>
-          <li><Tag cls="bg-[#e45d5d]">Dovish</Tag> rate cuts, easing, cooling inflation, weak data: weighs on it.</li>
-          <li><Tag cls="bg-[#43a047]">Risk-on</Tag> rallies, record highs, deals: helps AUD, NZD, stocks; hurts JPY, CHF, gold.</li>
-          <li><Tag cls="bg-[#c98a00]">Risk-off</Tag> sell-offs, safe havens, war, fears: the reverse.</li>
-          <li><Tag cls="bg-[#c98a00]">High impact</Tag> rate decisions, CPI, NFP, GDP, press conferences.</li>
+          <li><Tag cls="bg-bull">Hawkish</Tag> rate hikes, tightening, hot inflation, strong data: supports the currency.</li>
+          <li><Tag cls="bg-bear">Dovish</Tag> rate cuts, easing, cooling inflation, weak data: weighs on it.</li>
+          <li><Tag cls="bg-good">Risk-on</Tag> rallies, record highs, deals: helps AUD, NZD, stocks; hurts JPY, CHF, gold.</li>
+          <li><Tag cls="bg-amber">Risk-off</Tag> sell-offs, safe havens, war, fears: the reverse.</li>
+          <li><Tag cls="bg-amber">High impact</Tag> rate decisions, CPI, NFP, GDP, press conferences.</li>
           <li><b>Currency tags</b>: who the headline is about. The tone only counts for currencies named by country or central bank, not a bare pair code (&ldquo;GBP/USD rallies on UK wages&rdquo; is hawkish for GBP only).</li>
           <li><b>Blue source name</b> = an official central bank press release.</li>
           <li>Tags come from keywords, so they&rsquo;re a quick guide; open the article when it matters.</li>

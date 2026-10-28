@@ -6,7 +6,7 @@ import QuickEdit from "@/components/QuickEdit";
 import { ErrorBox, Loading, Panel } from "@/components/ui";
 import { put, useApi } from "@/lib/api";
 
-const BLUE = "#3d4fd6", RED = "#e45d5d";
+const BLUE = "var(--color-bull)", RED = "var(--color-bear)";
 const GROUPS: [string, (s: string) => boolean][] = [
   ["Majors", (s) => s.includes("USD") && !["USDZAR", "USDMXN", "XAUUSD", "XAGUSD"].includes(s)],
   ["Crosses", (s) => !s.includes("USD")],
@@ -78,7 +78,7 @@ export default function RetailBoard() {
                     <span className="font-semibold">{s.name}</span>
                     <span className="text-muted" onClick={(e) => e.stopPropagation()}>
                       <QuickEdit label={`${s.name} retail long %`} initial={s.long_pct != null ? String(s.long_pct) : ""} onSave={save(s.symbol)}
-                        display={s.long_pct == null ? "no data" : <>{s.long_pct}% long{s.change_week != null && <span className={s.change_week > 0 ? "text-[#9ccc65]" : s.change_week < 0 ? "text-[#ff7b7b]" : ""}> ({s.change_week > 0 ? "+" : ""}{s.change_week} wk)</span>}{s.stale && " · old"}</>} />
+                        display={s.long_pct == null ? "no data" : <>{s.long_pct}% long{s.change_week != null && <span className={s.change_week > 0 ? "text-up" : s.change_week < 0 ? "text-bear-soft" : ""}> ({s.change_week > 0 ? "+" : ""}{s.change_week} wk)</span>}{s.stale && " · old"}</>} />
                     </span>
                   </div>
                   <div className={`flex h-4 overflow-hidden rounded text-[0.65rem] font-semibold leading-4 text-white ${s.stale ? "opacity-50" : ""}`}>
