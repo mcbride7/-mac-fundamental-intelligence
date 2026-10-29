@@ -79,3 +79,14 @@ def test_partial_failure_warns(client, db, monkeypatch):
     assert r["status"] == "OK" and "Swiss National Bank" in r["warning"]
     src = next(s for s in client.get("/api/sources").json() if s["key"] == "yields")
     assert src is not None
+
+
+def test_freshness_matches_schedule(db):
+    from app.models import Source
+    from app.seed import seed
+
+    src = db.query(Source).filter_by(key="twelvedata").one()
+    src.freshness_minutes = 15
+    db.commit()
+    seed(db)
+    assert db.query(Source).filter_by(key="twelvedata").one().freshness_minutes == 60

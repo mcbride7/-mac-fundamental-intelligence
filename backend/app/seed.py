@@ -60,7 +60,8 @@ SOURCES = [
      "https://data.ecb.europa.eu", None, None, 1440, {}),
     ("news", "News headlines (central bank RSS, FXStreet, Investing.com, Finnhub)", "3", "rss", None, None, None,
      60, {}),
-    ("twelvedata", "Twelve Data market prices", "2", "api", "https://twelvedata.com", None, None, 15, {}),
+    # fetched hourly (free plan limits), so it counts as late after 1 hour and stale after 2
+    ("twelvedata", "Twelve Data market prices", "2", "api", "https://twelvedata.com", None, None, 60, {}),
     ("calendar_csv", "Calendar CSV import", "2", "csv", None, None, None, 10080, {}),
     ("manual", "User-supplied manual data", "M", "manual", None, None, None, 0, {}),
 ]
@@ -296,8 +297,11 @@ def seed(db: Session) -> None:
             db.add(src)
             db.flush()
             db.add(SourceHealth(source_id=src.id))
-        elif src.name != name:
-            src.name = name  # keep descriptions current when a feed gains coverage
+        else:
+            if src.name != name:
+                src.name = name  # keep descriptions current when a feed gains coverage
+            if src.freshness_minutes != fresh:
+                src.freshness_minutes = fresh  # keep "late / stale" in step with how often the job runs
     for row in INDICATORS:
         (code, name, country, ccy, cat, unit, freq, imp, tr, hi, aliases, fred, off, cb, pv) = row
         ind = db.scalar(select(Indicator).where(Indicator.code == code))
