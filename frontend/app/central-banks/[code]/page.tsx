@@ -11,6 +11,10 @@ import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, PolicyDial, Stat, S
 import { patch, post, useApi } from "@/lib/api";
 import { date, dateTime, num, signed, toneClass } from "@/lib/format";
 
+const READ_CLS: Record<string, string> = {
+  hawkish: "bg-hawk/20 text-hawk", dovish: "bg-dove/20 text-dove", neutral: "bg-panel-2 text-muted",
+};
+
 const TABS = ["Overview", "Policy", "Statement comparison", "Projections", "Forecast accuracy", "Where are we now",
   "Market expectations", "History"] as const;
 
@@ -87,8 +91,13 @@ function Overview({ d, onSaved }: { d: any; onSaved: () => void }) {
             <Stat label="Last decision"
               value={<QuickEdit label="Last decision" kind="decision" display={d.last_decision || "—"} initial={d.last_decision || "HOLD"}
                 onSave={(v) => edit("last_decision", v)} />}
-              sub={[d.last_decision_date && `on ${date(d.last_decision_date)}`, d.last_change_bps ? `${signed(d.last_change_bps, 0)} bp` : null]
-                .filter(Boolean).join(" · ") || undefined} />
+              sub={<>
+                {d.decision_read && d.decision_read.score !== null && (
+                  <span className={`mr-1.5 inline-block rounded px-1.5 py-px text-xs font-medium ${READ_CLS[d.decision_read.lean] || ""}`}
+                    title={d.decision_read.reasons.join("\n")}>{d.decision_read.label}</span>)}
+                {[d.last_decision_date && `on ${date(d.last_decision_date)}`, d.last_change_bps ? `${signed(d.last_change_bps, 0)} bp` : null]
+                  .filter(Boolean).join(" · ")}
+              </>} />
             <Stat label="Next meeting"
               value={<QuickEdit label="Next meeting" kind="date" display={date(d.next_meeting)} initial={nb(d.next_meeting).slice(0, 10)}
                 onSave={(v) => edit("next_meeting", v)} />}
@@ -116,6 +125,17 @@ function Overview({ d, onSaved }: { d: any; onSaved: () => void }) {
                 : num(d.growth, 1, "%")} />
             <Stat label="Unemployment, 6m change" value={<span title="Worked out from the unemployment rate history">{signed(d.unemployment_change_6m, 2, " pp")}</span>} />
           </div>
+          {d.decision_read && d.decision_read.reasons?.length > 0 && (
+            <div className={`mt-5 rounded border-l-4 bg-panel-2/60 px-4 py-3 text-sm ${d.decision_read.lean === "hawkish" ? "border-hawk" : d.decision_read.lean === "dovish" ? "border-dove" : "border-line"}`}>
+              <p className="font-medium">How the last decision reads: <span className={`rounded px-1.5 py-px ${READ_CLS[d.decision_read.lean] || ""}`}>{d.decision_read.label}</span>
+                {d.decision_read.score !== null && <span className="ml-2 text-xs text-muted">score {d.decision_read.score > 0 ? "+" : ""}{d.decision_read.score} (−1 dovish … +1 hawkish)</span>}</p>
+              <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-muted">
+                {d.decision_read.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+              </ul>
+              <p className="mt-1.5 text-xs text-muted">Based on the statement&rsquo;s wording vs last time, votes against the decision, what the market expected
+                (set it under Next meeting → Expected, or enter odds on Market expectations) and inflation vs target.</p>
+            </div>
+          )}
         </Panel>
         <Panel title="Current fundamental implication">
           {d.where_are_we.table.length ? (

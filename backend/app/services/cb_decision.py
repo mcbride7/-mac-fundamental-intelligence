@@ -56,3 +56,37 @@ def backfill(db: Session) -> int:
         if st is not None and record_from_statement(db, st):
             n += 1
     return n
+
+
+def characterise_latest(db: Session, cb: CentralBank, snap) -> dict | None:
+    """Hawkish / dovish hold (or cut / hike) for the bank's latest decision, with the reasons."""
+    from app.analytics.decision import characterise, parse_dissent
+    from app.engines import fundamentals as fnd
+
+    decision = snap.last_decision
+    if decision is None:
+        return None
+    sts = list(db.scalars(select(CentralBankStatement).where(CentralBankStatement.central_bank_id == cb.id,
+                                                             CentralBankStatement.doc_type == "statement")
+                          .order_by(CentralBankStatement.published_at.desc()).limit(2)))
+    st = sts[0] if sts else None
+    when = snap.last_decision_date
+    # only use the statement if it belongs to this decision (same week)
+    if st is not None and when is not None and st.published_at is not None:
+        if abs((st.published_at.date() - when).days) > 6:
+            st = None
+    prev = sts[1] if st is not None and len(sts) > 1 else None
+    meeting = None
+    if when is not None:
+        meeting = db.scalar(select(CentralBankMeeting).where(CentralBankMeeting.central_bank_id == cb.id,
+                                                             CentralBankMeeting.meeting_date == when))
+    before = st.published_at if st is not None else None
+    rx = fnd.latest_rate_expectation(db, cb.code, before=before) if before is not None else None
+    res = characterise(decision, st.tone_score if st else None, prev.tone_score if prev else None,
+                       parse_dissent(st.text) if st else None,
+                       expected=meeting.expected_decision if meeting else None,
+                       prob_cut=rx.prob_cut if rx else None, prob_hike=rx.prob_hike if rx else None,
+                       inflation=snap.inflation, target=cb.inflation_target)
+    if res is not None and st is None:
+        res["reasons"].insert(0, "No decision statement stored for this meeting: fetch it for a fuller read")
+    return res

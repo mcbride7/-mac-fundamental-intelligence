@@ -306,6 +306,7 @@ def dashboard(db: Session, cb: CentralBank) -> dict:
         "edit_codes": {"rate": fnd.POLICY_RATE.get(cb.code), "inflation": fnd.HEADLINE_INFL.get(fnd.COUNTRY.get(cb.currency, cb.country)),
                        "gdp": fnd.GDP.get(fnd.COUNTRY.get(cb.currency, cb.country))}, "last_decision": snap.last_decision,
         "last_change_bps": snap.last_change_bps, "last_decision_date": snap.last_decision_date,
+        "decision_read": _decision_read(db, cb, snap),
         "next_meeting": nxt.meeting_date if nxt else None, "expected_decision": nxt.expected_decision if nxt else None,
         "policy": ({"score": ps.score, "classification": ps.classification, "direction": ps.direction,
                     "confidence": ps.confidence, "previous_score": ps.previous_score, "shift": ps.shift,
@@ -329,6 +330,15 @@ def dashboard(db: Session, cb: CentralBank) -> dict:
                         "manual_inputs": [s for s in snap.sources if s["input_method"] != "automated"],
                         "sources": snap.sources},
     }
+
+
+def _decision_read(db: Session, cb: CentralBank, snap) -> dict | None:
+    try:
+        from app.services.cb_decision import characterise_latest
+
+        return characterise_latest(db, cb, snap)
+    except Exception:  # a read we can't work out never breaks the page
+        return None
 
 
 def _previous_rate(cb: CentralBank, snap) -> float | None:
