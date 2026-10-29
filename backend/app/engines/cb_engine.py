@@ -137,6 +137,12 @@ def statement_comparison_node(db: Session, ctx: Context) -> None:
         cb = db.get(CentralBank, st.central_bank_id)
         ctx.central_banks.add(cb.code)
         ctx.currencies.add(cb.currency)
+        from app.services.cb_decision import record_from_statement
+
+        dec = record_from_statement(db, st)  # the decision in the statement becomes the Overview's last decision
+        if dec:
+            ctx.change(f"{cb.short_name}: decision read from the statement: {dec['decision']}"
+                       + (f" at {dec['rate']:g}%" if dec.get("rate") is not None else ""))
         v = compare_statements(db, st)
         if v is None:
             ctx.change(f"{cb.short_name}: first statement stored (tone {st.tone_score:+.0f}).")
@@ -299,7 +305,7 @@ def dashboard(db: Session, cb: CentralBank) -> dict:
         "rate_from_indicator": cb.code in fnd.POLICY_RATE,
         "edit_codes": {"rate": fnd.POLICY_RATE.get(cb.code), "inflation": fnd.HEADLINE_INFL.get(fnd.COUNTRY.get(cb.currency, cb.country)),
                        "gdp": fnd.GDP.get(fnd.COUNTRY.get(cb.currency, cb.country))}, "last_decision": snap.last_decision,
-        "last_change_bps": snap.last_change_bps,
+        "last_change_bps": snap.last_change_bps, "last_decision_date": snap.last_decision_date,
         "next_meeting": nxt.meeting_date if nxt else None, "expected_decision": nxt.expected_decision if nxt else None,
         "policy": ({"score": ps.score, "classification": ps.classification, "direction": ps.direction,
                     "confidence": ps.confidence, "previous_score": ps.previous_score, "shift": ps.shift,

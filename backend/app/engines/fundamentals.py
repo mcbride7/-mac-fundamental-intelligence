@@ -4,7 +4,7 @@ of the data behind it, so evidence quality and grade caps are always honest."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -74,6 +74,7 @@ class Snapshot:
     statement_tone: float | None = None
     last_decision: str | None = None
     last_change_bps: float | None = None
+    last_decision_date: date | None = None
     points: list = field(default_factory=list)  # DataPointStatus
     sources: list = field(default_factory=list)  # evidence for citations
 
@@ -175,10 +176,28 @@ def build(db: Session, currency: str) -> Snapshot:
                         break
                 else:
                     snap.last_decision = "HOLD"
+                change_month = next((b.reference_period for a, b in zip(reversed(hist[:-1]), reversed(hist[1:]))
+                                     if abs(b.actual - a.actual) > 1e-6), None)
+                # a decision read from the latest statement (or typed in) that is newer than the last rate change
+                # wins: e.g. the Fed held this week, after cutting months ago
+                if cb.last_decision and cb.last_decision_date and (
+                        change_month is None or cb.last_decision_date.isoformat()[:7] >= change_month[:7]):
+                    snap.last_decision = cb.last_decision
+                    snap.last_decision_date = cb.last_decision_date
+                    if cb.last_decision == "HOLD":
+                        snap.last_change_bps = 0
+                    elif cb.current_rate is not None and cb.previous_rate is not None:
+                        snap.last_change_bps = round((cb.current_rate - cb.previous_rate) * 100)
+                    # a new rate stated in the statement shows before the data feed catches up
+                    rel_day = (rel.released_at or rel.created_at)
+                    if (cb.current_rate is not None and rel_day is not None
+                            and cb.last_decision_date > rel_day.date() and cb.last_decision != "HOLD"):
+                        snap.policy_rate = cb.current_rate
         if snap.policy_rate is None:
             snap.policy_rate = cb.current_rate
             if cb.last_decision:
                 snap.last_decision = cb.last_decision
+                snap.last_decision_date = cb.last_decision_date
                 if cb.current_rate is not None and cb.previous_rate is not None:
                     snap.last_change_bps = round((cb.current_rate - cb.previous_rate) * 100)
         snap.deviations = projection_deviations(db, cb, snap)

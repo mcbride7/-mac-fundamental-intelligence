@@ -26,8 +26,10 @@ def test_rate_for_bank_with_indicator_goes_through_checks(client):
     assert d["current_rate"] == 4.25 and d["last_decision"] == "CUT" and d["previous_rate"] == 4.5
     src = [s for s in d["data_status"]["sources"] if s["label"] == "Policy rate"][0]
     assert src["period"] == "2026-09" and src["input_method"] != "automated"
-    # derived from history: not editable directly
-    assert e(field="last_decision", value="HIKE").status_code == 400
+    # the last decision can also be set by hand (e.g. a hold the rate history can't show yet)
+    assert e(field="last_decision", value="HOLD").status_code == 200
+    d = _ov(client, "FED")
+    assert d["last_decision"] == "HOLD" and d["last_change_bps"] == 0 and d["current_rate"] == 4.25
     assert e(field="previous_rate", value=5).status_code == 400
     assert e(field="current_rate", value=4, period="Sept").status_code == 400
 

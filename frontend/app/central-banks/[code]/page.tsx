@@ -85,11 +85,10 @@ function Overview({ d, onSaved }: { d: any; onSaved: () => void }) {
                 : <>Previous <QuickEdit label="Previous rate" display={num(d.previous_rate, 2, "%")} initial={nb(d.previous_rate)}
                     onSave={(v) => edit("previous_rate", v)} /></>} />
             <Stat label="Last decision"
-              value={d.rate_from_indicator
-                ? <span title="Worked out from the rate history: change the current rate to update it">{d.last_decision || "—"}</span>
-                : <QuickEdit label="Last decision" kind="decision" display={d.last_decision || "—"} initial={d.last_decision || "HOLD"}
-                    onSave={(v) => edit("last_decision", v)} />}
-              sub={d.last_change_bps ? `${signed(d.last_change_bps, 0)} bp` : undefined} />
+              value={<QuickEdit label="Last decision" kind="decision" display={d.last_decision || "—"} initial={d.last_decision || "HOLD"}
+                onSave={(v) => edit("last_decision", v)} />}
+              sub={[d.last_decision_date && `on ${date(d.last_decision_date)}`, d.last_change_bps ? `${signed(d.last_change_bps, 0)} bp` : null]
+                .filter(Boolean).join(" · ") || undefined} />
             <Stat label="Next meeting"
               value={<QuickEdit label="Next meeting" kind="date" display={date(d.next_meeting)} initial={nb(d.next_meeting).slice(0, 10)}
                 onSave={(v) => edit("next_meeting", v)} />}

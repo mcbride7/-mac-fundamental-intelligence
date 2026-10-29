@@ -79,6 +79,12 @@ def edit(db: Session, cb: CentralBank, field: str, value, period: str | None = N
         earlier = [r for r in da.current_series(db, ind.id, 36) if r.reference_period < per]
         res = ms.quick_release(db, ind, per, v, user_id, reason, "Central bank page edit", "cb_overview_edit",
                                previous=earlier[-1].actual if earlier else None)
+        if field == "current_rate":  # a typed rate is also the latest decision (newer than any older hold)
+            prev = earlier[-1].actual if earlier else None
+            cb.previous_rate, cb.current_rate = prev, v
+            cb.last_decision = "HOLD" if prev is None or abs(v - prev) < 1e-9 else ("HIKE" if v > prev else "CUT")
+            cb.last_decision_date = date.today()
+            db.commit()
         return out | {"value": v, "period": per, "indicator_code": ind.code, **res}
 
     before = None
@@ -98,9 +104,7 @@ def edit(db: Session, cb: CentralBank, field: str, value, period: str | None = N
         before, cb.previous_rate = cb.previous_rate, _number(value, "Previous rate", -5, 100)
         out["value"] = cb.previous_rate
     elif field == "last_decision":
-        if has_rate_indicator(cb):
-            raise ValueError(f"The {cb.short_name}'s last decision is worked out from its rate history. "
-                             "Edit the current rate instead.")
+        # banks with a rate history can still be set by hand (e.g. a hold the data feed can't show)
         before, cb.last_decision = cb.last_decision, _decision(value)
         cb.last_decision_date = date.today()
         out["value"] = cb.last_decision

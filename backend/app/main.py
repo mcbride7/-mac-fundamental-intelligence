@@ -25,6 +25,12 @@ async def lifespan(app: FastAPI):
 
         recompute._load_engines()
         recompute.persist_graph(db)
+        try:  # read the decision out of each bank's latest stored statement (catches up after an upgrade)
+            from app.services.cb_decision import backfill
+
+            backfill(db)
+        except Exception:  # never block start-up
+            db.rollback()
     yield
 
 
