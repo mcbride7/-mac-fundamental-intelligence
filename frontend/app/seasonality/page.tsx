@@ -458,7 +458,7 @@ export default function Seasonality() {
         <Empty href="/data-health" cta="Open Data health">No price history yet. On Data health, press Run now on &ldquo;Seasonality price histories&rdquo;. The first run downloads up to 25 years per asset and takes a few minutes.</Empty>
       ) : (
         <div className="space-y-6">
-          <Panel title={`Seasonal leaders${group === "All" ? "" : `: ${group}`}`}>
+          <Panel title={`Seasonal leaders${group === "All" ? "" : `: ${group}`}`} collapseId="seas-leaders">
             <div className="grid gap-6 lg:grid-cols-2">
               {view === "weekly" ? (<>
                 <Leaders data={o.this_week} title="This week" groupOf={groupOf} group={group} />
@@ -472,7 +472,7 @@ export default function Seasonality() {
           </Panel>
 
           {view === "weekly" ? (
-            <Panel title={`The next four weeks · last ${years} years`} action={<span className="text-xs text-muted">Colour = how often it rose · number = average move · tap a row for detail</span>}>
+            <Panel title={`The next four weeks · last ${years} years`} collapseId="seas-all-weeks" action={<span className="text-xs text-muted">Colour = how often it rose · number = average move · tap a row for detail</span>}>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[40rem] text-xs tabular-nums">
                   <thead><tr className="text-muted"><th className="px-2 py-1 text-left font-medium">Asset</th>
@@ -497,7 +497,7 @@ export default function Seasonality() {
               </div>
             </Panel>
           ) : (
-            <Panel title={`All assets by month · last ${years} years`} action={<span className="text-xs text-muted">Colour = how often it rose · number = average move · tap a row for detail</span>}>
+            <Panel title={`All assets by month · last ${years} years`} collapseId="seas-all-months" action={<span className="text-xs text-muted">Colour = how often it rose · number = average move · tap a row for detail</span>}>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[60rem] text-xs tabular-nums">
                   <thead><tr className="text-muted"><th className="px-2 py-1 text-left font-medium">Asset</th>
@@ -523,7 +523,7 @@ export default function Seasonality() {
             </Panel>
           )}
 
-          <Panel title={`${selName}: ${view} seasonality · last ${years} years`}>
+          <Panel title={`${selName}: ${view} seasonality · last ${years} years`} collapseId="seas-detail">
             <Detail k={sel} years={years} current={current} view={view} options={options.some((x) => x.key === sel) ? options : [{ key: sel, name: selName }, ...options]} onPick={pick} />
           </Panel>
           <p className="text-xs text-muted">Past seasonal patterns can fail in any given year. This is not financial advice.</p>
