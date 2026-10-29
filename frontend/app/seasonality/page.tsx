@@ -20,7 +20,37 @@ function cellStyle(s: any): React.CSSProperties {
   const t = (s.win_rate - 50) / 50; // -1..1
   const a = Math.min(0.85, Math.abs(t) * 0.95);
   if (Math.abs(t) < 0.1) return {};
-  return { background: `${t > 0 ? GREEN : RED}${Math.round(a * 255).toString(16).padStart(2, "0")}`, color: a > 0.45 ? "#fff" : undefined };
+  return { background: `color-mix(in srgb, ${t > 0 ? GREEN : RED} ${Math.round(a * 100)}%, transparent)`, color: a > 0.45 ? "#fff" : undefined };
+}
+
+type Kind = "bar" | "line";
+
+/** Bar / Line switch for one chart, remembered per chart on this device. */
+function useKind(id: string, initial: Kind): [Kind, (k: Kind) => void] {
+  const [k, setK] = useState<Kind>(initial);
+  useEffect(() => {
+    try { const v = localStorage.getItem(`seas-chart:${id}`); if (v === "bar" || v === "line") setK(v); } catch { /* ignore */ }
+  }, [id]);
+  const set = (v: Kind) => { setK(v); try { localStorage.setItem(`seas-chart:${id}`, v); } catch { /* ignore */ } };
+  return [k, set];
+}
+
+function KindToggle({ kind, onChange }: { kind: Kind; onChange: (k: Kind) => void }) {
+  return (
+    <span role="radiogroup" aria-label="Chart type" className="ml-2 inline-flex overflow-hidden rounded border border-line align-middle text-xs font-normal">
+      {(["bar", "line"] as Kind[]).map((k) => (
+        <button key={k} role="radio" aria-checked={kind === k} onClick={() => onChange(k)}
+          className={`px-2 py-0.5 ${kind === k ? "bg-panel-2 text-text" : "text-muted hover:text-text"}`}>{k === "bar" ? "Bar" : "Line"}</button>
+      ))}
+    </span>
+  );
+}
+
+/** Daily path -> the value at the end of each month (12 values). */
+function monthEnds(vals: (number | null)[]): (number | null)[] {
+  const out: (number | null)[] = Array(12).fill(null);
+  vals.forEach((v, i) => { if (v !== null && v !== undefined) out[Math.min(11, Math.floor((i * 12) / Math.max(1, vals.length)))] = v; });
+  return out;
 }
 
 function Leaders({ data, title, groupOf, group }: { data: any; title: string; groupOf: Record<string, string>; group: string }) {
@@ -48,8 +78,8 @@ function Leaders({ data, title, groupOf, group }: { data: any; title: string; gr
   );
 }
 
-function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
-  months: any[]; mode: string; current: number; thisYear?: (number | null)[]; latest?: number; latestDate?: string;
+function MonthBars({ months, mode, current, thisYear, latest, latestDate, kind = "bar" }: {
+  months: any[]; mode: string; current: number; thisYear?: (number | null)[]; latest?: number; latestDate?: string; kind?: Kind;
 }) {
   const W = 780, H = 290, L = 50, T = 42, B = 36, ih = H - T - B, iw = W - L - 10;
   const ty = thisYear || [];
@@ -78,17 +108,27 @@ function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
           return (
             <g key={m.month}>
               {i + 1 === current && <rect x={x0 + 2} y={T - 12} width={bw - 4} height={ih + 24} fill="currentColor" opacity="0.07" rx="4" />}
-              <rect x={x} width={w} y={Math.min(y(v), y(0))} height={Math.max(1, Math.abs(y(v) - y(0)))} fill={v >= 0 ? GREEN : RED} opacity="0.9">
-                <title>{`${m.name}: average ${mv(m.avg, mode)}, median ${mv(m.median, mode)}, up in ${m.win_rate}% of ${m.n} years`}</title>
-              </rect>
+              {kind === "bar" ? (
+                <rect x={x} width={w} y={Math.min(y(v), y(0))} height={Math.max(1, Math.abs(y(v) - y(0)))} fill={v >= 0 ? GREEN : RED} opacity="0.9">
+                  <title>{`${m.name}: average ${mv(m.avg, mode)}, median ${mv(m.median, mode)}, up in ${m.win_rate}% of ${m.n} years`}</title>
+                </rect>
+              ) : m.avg != null && (
+                <circle cx={x0 + bw / 2} cy={y(v)} r="4" fill={v >= 0 ? GREEN : RED}>
+                  <title>{`${m.name}: average ${mv(m.avg, mode)}, median ${mv(m.median, mode)}, up in ${m.win_rate}% of ${m.n} years`}</title>
+                </circle>
+              )}
               {m.avg != null && (
-                <text x={x + w / 2} y={top ? y(v) - 4 : y(v) + 11} fontSize="9.5" textAnchor="middle" fill="currentColor" opacity="0.9">{label(m.avg)}</text>
+                <text x={x + w / 2} y={top ? y(v) - (kind === "bar" ? 4 : 8) : y(v) + (kind === "bar" ? 11 : 15)} fontSize="9.5" textAnchor="middle" fill="currentColor" opacity="0.9">{label(m.avg)}</text>
               )}
               <text x={x0 + bw / 2} y={H - 19} fontSize="11" textAnchor="middle" fill="currentColor" opacity="0.75">{m.name}</text>
               <text x={x0 + bw / 2} y={H - 6} fontSize="10" textAnchor="middle" fill="currentColor" opacity="0.55">{m.win_rate == null ? "" : `${m.win_rate}% up`}</text>
             </g>
           );
         })}
+        {kind === "line" && (
+          <path d={months.map((m, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(m.avg ?? 0).toFixed(1)}`).join(" ")}
+            fill="none" stroke="var(--color-line-a)" strokeWidth="2.4" strokeLinejoin="round" />
+        )}
         {(() => {
           const pts = ty.map((v, i) => (v === null || v === undefined ? null : { i, v, x: L + i * bw + bw / 2, y: y(v) }))
             .filter((p): p is { i: number; v: number; x: number; y: number } => p !== null);
@@ -115,7 +155,9 @@ function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
         })()}
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-        <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: GREEN }} /><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: RED }} />Average move (number on the bar)</span>
+        {kind === "bar"
+          ? <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: GREEN }} /><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: RED }} />Average move (number on the bar)</span>
+          : <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-line-a)" }} />Average move (number on each point)</span>}
         <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-text)" }} />{year} line: this year&rsquo;s move each month (current month = so far)</span>
         <span>Bottom row: how often the month rose</span>
       </figcaption>
@@ -123,7 +165,7 @@ function MonthBars({ months, mode, current, thisYear, latest, latestDate }: {
   );
 }
 
-function PathChart({ path, mode }: { path: any; mode: string }) {
+function PathChart({ path, mode, kind = "line" }: { path: any; mode: string; kind?: Kind }) {
   const W = 760, H = 230, L = 46, R = 10, T = 12, B = 26, iw = W - L - R, ih = H - T - B;
   const avg: (number | null)[] = path.average, cur: (number | null)[] = path.current;
   const all = [...avg, ...cur].filter((v): v is number => v !== null);
@@ -139,13 +181,27 @@ function PathChart({ path, mode }: { path: any; mode: string }) {
         <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="currentColor" opacity="0.3" />
         {[hi, (hi + lo) / 2, lo].map((t) => <text key={t} x={L - 6} y={y(t) + 4} fontSize="10.5" textAnchor="end" fill="currentColor" opacity="0.55">{mv(t, mode, 1)}</text>)}
         {MONTHS.map((m, i) => <text key={m} x={L + (i / 12) * iw + iw / 24} y={H - 6} fontSize="10.5" textAnchor="middle" fill="currentColor" opacity="0.6">{m}</text>)}
-        <path d={d(avg)} fill="none" stroke="var(--color-line-a)" strokeWidth="2.4" />
-        <path d={d(cur)} fill="none" stroke="var(--color-line-b)" strokeWidth="2.2" />
+        {kind === "line" ? (<>
+          <path d={d(avg)} fill="none" stroke="var(--color-line-a)" strokeWidth="2.4" />
+          <path d={d(cur)} fill="none" stroke="var(--color-line-b)" strokeWidth="2.2" />
+        </>) : (() => {
+          const ma = monthEnds(avg), mc = monthEnds(cur), bw = iw / 12;
+          return MONTHS.map((m, i) => (
+            <g key={m}>
+              {[ma[i], mc[i]].map((v, j) => v === null ? null : (
+                <rect key={j} x={L + i * bw + bw * (0.14 + j * 0.37)} width={bw * 0.33} y={Math.min(y(v), y(0))}
+                  height={Math.max(1, Math.abs(y(v) - y(0)))} fill={j === 0 ? "var(--color-line-a)" : "var(--color-line-b)"}>
+                  <title>{`End of ${m}: ${j === 0 ? "average year" : "this year"} ${mv(v, mode)}`}</title>
+                </rect>
+              ))}
+            </g>
+          ));
+        })()}
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-4 text-xs text-muted">
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-line-a)" }} />Average year ({path.years_used} years)</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-line-b)" }} />This year so far</span>
-        <span>Move since the end of the previous year</span>
+        <span className="flex items-center gap-1.5"><span className={kind === "bar" ? "inline-block h-2.5 w-2.5 rounded-sm" : "inline-block w-4 border-t-2"} style={kind === "bar" ? { background: "var(--color-line-a)" } : { borderColor: "var(--color-line-a)" }} />Average year ({path.years_used} years)</span>
+        <span className="flex items-center gap-1.5"><span className={kind === "bar" ? "inline-block h-2.5 w-2.5 rounded-sm" : "inline-block w-4 border-t-2"} style={kind === "bar" ? { background: "var(--color-line-b)" } : { borderColor: "var(--color-line-b)" }} />This year so far</span>
+        <span>Move since the end of the previous year{kind === "bar" ? " (bars = end of each month)" : ""}</span>
       </figcaption>
     </figure>
   );
@@ -159,7 +215,7 @@ function fmtPrice(v: number, mode: string): string {
 }
 
 /** This year's price against the price the seasonal pattern implies, and where the pattern points from today. */
-function PriceChart({ pc, mode }: { pc: any; mode: string }) {
+function PriceChart({ pc, mode, kind = "line" }: { pc: any; mode: string; kind?: Kind }) {
   const W = 760, H = 260, L = 64, R = 12, T = 14, B = 26, iw = W - L - R, ih = H - T - B;
   const seas: (number | null)[] = pc.seasonal, act: (number | null)[] = pc.actual, proj: (number | null)[] = pc.projection;
   const all = [...seas, ...act, ...proj].filter((v): v is number => v !== null);
@@ -180,13 +236,33 @@ function PriceChart({ pc, mode }: { pc: any; mode: string }) {
         ))}
         {MONTHS.map((m, i) => <text key={m} x={L + (i / 12) * iw + iw / 24} y={H - 6} fontSize="10.5" textAnchor="middle" fill="currentColor" opacity="0.6">{m}</text>)}
         {at >= 0 && <line x1={x(at)} x2={x(at)} y1={T} y2={T + ih} stroke="currentColor" opacity="0.25" strokeDasharray="3 3" />}
-        <path d={d(seas)} fill="none" stroke="var(--color-line-a)" strokeWidth="2" opacity="0.9" />
-        <path d={d(proj)} fill="none" stroke="var(--color-line-b)" strokeWidth="2" strokeDasharray="6 4" />
-        <path d={d(act)} fill="none" stroke="var(--color-text)" strokeWidth="2.4" />
-        {at >= 0 && act[at] != null && <circle cx={x(at)} cy={y(act[at] as number)} r="4" fill="var(--color-text)" />}
+        {kind === "line" ? (<>
+          <path d={d(seas)} fill="none" stroke="var(--color-line-a)" strokeWidth="2" opacity="0.9" />
+          <path d={d(proj)} fill="none" stroke="var(--color-line-b)" strokeWidth="2" strokeDasharray="6 4" />
+          <path d={d(act)} fill="none" stroke="var(--color-text)" strokeWidth="2.4" />
+          {at >= 0 && act[at] != null && <circle cx={x(at)} cy={y(act[at] as number)} r="4" fill="var(--color-text)" />}
+        </>) : (() => {
+          const ms = monthEnds(seas), ma = monthEnds(act), mp = monthEnds(proj), bw = iw / 12, base = T + ih;
+          return MONTHS.map((m, i) => {
+            const bars: [number | null, string, string, number][] = [[ma[i], "var(--color-text)", "price", 1],
+              [ms[i], "var(--color-line-a)", "seasonal path", 0.9], [ma[i] === null ? mp[i] : null, "var(--color-line-b)", "seasonal pattern from today", 0.55]];
+            const shown = bars.filter(([v]) => v !== null);
+            return (
+              <g key={m}>
+                {shown.map(([v, col, what, op], j) => (
+                  <rect key={what} x={L + i * bw + bw * 0.12 + j * (bw * 0.76 / shown.length)} width={bw * 0.76 / shown.length - 2}
+                    y={y(v as number)} height={Math.max(1, base - y(v as number))} fill={col} opacity={op}>
+                    <title>{`End of ${m}: ${what} ${fmtPrice(v as number, mode)}`}</title>
+                  </rect>
+                ))}
+              </g>
+            );
+          });
+        })()}
         {at >= 0 && act[at] != null && <text x={Math.min(x(at) + 6, W - R - 60)} y={y(act[at] as number) - 8} fontSize="11" fill="currentColor">{fmtPrice(pc.latest, mode)}</text>}
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+        {kind === "bar" && <span>Bars = price at the end of each month (the current month = latest)</span>}
         <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-text)" }} />Price this year</span>
         <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2" style={{ borderColor: "var(--color-line-a)" }} />Seasonal path (average year applied to last year&rsquo;s close)</span>
         <span className="flex items-center gap-1.5"><span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "var(--color-line-b)" }} />Seasonal pattern from today&rsquo;s price</span>
@@ -195,7 +271,7 @@ function PriceChart({ pc, mode }: { pc: any; mode: string }) {
   );
 }
 
-function WeekBars({ weeks, mode, current }: { weeks: any[]; mode: string; current: number }) {
+function WeekBars({ weeks, mode, current, kind = "bar" }: { weeks: any[]; mode: string; current: number; kind?: Kind }) {
   const W = 900, H = 230, L = 46, T = 18, B = 34, ih = H - T - B, iw = W - L - 10;
   const vals = weeks.map((w) => w.avg ?? 0);
   const lim = Math.max(0.0001, ...vals.map(Math.abs)) * 1.15;
@@ -210,13 +286,23 @@ function WeekBars({ weeks, mode, current }: { weeks: any[]; mode: string; curren
         return (
           <g key={w.week}>
             {w.week === current && <rect x={x} y={T - 14} width={bw} height={ih + 30} fill="currentColor" opacity="0.1" rx="2" />}
-            <rect x={x + bw * 0.12} width={bw * 0.76} y={Math.min(y(v), y(0))} height={Math.max(1, Math.abs(y(v) - y(0)))}
-              fill={v >= 0 ? GREEN : RED} opacity={w.bias === "Bullish" || w.bias === "Bearish" ? 1 : 0.55}>
-              <title>{`${w.name}: average ${mv(w.avg, mode)}, up in ${w.win_rate}% of ${w.n} years`}</title>
-            </rect>
+            {kind === "bar" ? (
+              <rect x={x + bw * 0.12} width={bw * 0.76} y={Math.min(y(v), y(0))} height={Math.max(1, Math.abs(y(v) - y(0)))}
+                fill={v >= 0 ? GREEN : RED} opacity={w.bias === "Bullish" || w.bias === "Bearish" ? 1 : 0.55}>
+                <title>{`${w.name}: average ${mv(w.avg, mode)}, up in ${w.win_rate}% of ${w.n} years`}</title>
+              </rect>
+            ) : (
+              <circle cx={x + bw / 2} cy={y(v)} r={w.bias === "Bullish" || w.bias === "Bearish" ? 3 : 2} fill={v >= 0 ? GREEN : RED}>
+                <title>{`${w.name}: average ${mv(w.avg, mode)}, up in ${w.win_rate}% of ${w.n} years`}</title>
+              </circle>
+            )}
           </g>
         );
       })}
+      {kind === "line" && (
+        <path d={weeks.map((w, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(w.avg ?? 0).toFixed(1)}`).join(" ")}
+          fill="none" stroke="var(--color-line-a)" strokeWidth="1.8" strokeLinejoin="round" />
+      )}
       {MONTHS.map((m, i) => <text key={m} x={L + (i * 52 / 12 + 2.2) * bw} y={H - 14} fontSize="11" textAnchor="middle" fill="currentColor" opacity="0.7">{m}</text>)}
       <text x={L + (current - 0.5) * bw} y={H - 2} fontSize="10" textAnchor="middle" fill="currentColor">W{current}</text>
     </svg>
@@ -227,6 +313,10 @@ function Detail({ k, years, current, view, options, onPick }: {
   k: string; years: number; current: number; view: string; options: { key: string; name: string }[]; onPick: (k: string) => void;
 }) {
   const { data: a, error, loading } = useApi<any>(`/api/seasonality/${k}?years=${years}`);
+  const [priceKind, setPriceKind] = useKind("price", "line");
+  const [monthKind, setMonthKind] = useKind("month", "bar");
+  const [weekKind, setWeekKind] = useKind("week", "bar");
+  const [pathKind, setPathKind] = useKind("path", "line");
   if (error) return <ErrorBox error={error} />;
   if (loading && !a) return <Loading />;
   if (!a) return null;
@@ -259,30 +349,30 @@ function Detail({ k, years, current, view, options, onPick }: {
       </div>
       {a.price_chart && (
         <div>
-          <h3 className="mb-1 font-medium">Price vs its seasonal trend</h3>
+          <h3 className="mb-1 font-medium">Price vs its seasonal trend<KindToggle kind={priceKind} onChange={setPriceKind} /></h3>
           {a.price_chart.note && (
             <p className={`mb-2 rounded border-l-4 bg-panel-2/60 px-3 py-2 text-sm ${a.price_chart.gap > 0 ? "border-good" : a.price_chart.gap < 0 ? "border-bad" : "border-line"}`}>{a.price_chart.note}</p>
           )}
-          <div className="overflow-x-auto"><PriceChart pc={a.price_chart} mode={a.mode} /></div>
+          <div className="overflow-x-auto"><PriceChart pc={a.price_chart} mode={a.mode} kind={priceKind} /></div>
         </div>
       )}
       {weekly ? (
         a.weeks?.length ? (
           <div>
-            <h3 className="mb-1 font-medium">Average move by week of the year <span className="text-sm text-muted">· faded bars = no clear pattern · hover a bar for details</span></h3>
-            <div className="overflow-x-auto"><WeekBars weeks={a.weeks} mode={a.mode} current={a.week_now} /></div>
+            <h3 className="mb-1 font-medium">Average move by week of the year<KindToggle kind={weekKind} onChange={setWeekKind} /> <span className="text-sm text-muted">· {weekKind === "bar" ? "faded bars" : "small dots"} = no clear pattern · hover for details</span></h3>
+            <div className="overflow-x-auto"><WeekBars weeks={a.weeks} mode={a.mode} current={a.week_now} kind={weekKind} /></div>
           </div>
         ) : <p className="text-sm text-muted">Weekly seasonality needs daily prices; {a.name} only has monthly prices.</p>
       ) : (
         <div>
-          <h3 className="mb-1 font-medium">Average move by month vs this year <span className="text-sm text-muted">· win rate under each month</span></h3>
-          <div className="overflow-x-auto"><MonthBars months={a.months} mode={a.mode} current={current} thisYear={a.this_year} latest={a.latest} latestDate={a.latest_date} /></div>
+          <h3 className="mb-1 font-medium">Average move by month vs this year<KindToggle kind={monthKind} onChange={setMonthKind} /> <span className="text-sm text-muted">· win rate under each month</span></h3>
+          <div className="overflow-x-auto"><MonthBars months={a.months} mode={a.mode} current={current} thisYear={a.this_year} latest={a.latest} latestDate={a.latest_date} kind={monthKind} /></div>
         </div>
       )}
       {a.path && (
         <div>
-          <h3 className="mb-1 font-medium">The average year vs this year <span className="text-sm text-muted">· as % moves since the start of the year</span></h3>
-          <div className="overflow-x-auto"><PathChart path={a.path} mode={a.mode} /></div>
+          <h3 className="mb-1 font-medium">The average year vs this year<KindToggle kind={pathKind} onChange={setPathKind} /> <span className="text-sm text-muted">· as % moves since the start of the year</span></h3>
+          <div className="overflow-x-auto"><PathChart path={a.path} mode={a.mode} kind={pathKind} /></div>
         </div>
       )}
       <div>
