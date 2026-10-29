@@ -76,3 +76,19 @@ def test_weekly_stats_and_price_chart(client, db):
     gold = next(x for x in w["assets"] if x["key"] == "XAUUSD")
     assert w["view"] == "weekly" and len(gold["weeks"]) == 4 and len(w["columns"]) == 4
     assert client.get("/api/seasonality?view=daily").status_code == 422
+
+
+def test_equity_indices_listed(client, db):
+    from datetime import date, timedelta
+
+    from app.services import seasonality as ss
+
+    for k in ("NIKKEI", "EUROSTOXX50", "ASHR", "SPX", "NASDAQ", "NASDAQ100", "DJIA", "RUSSELL2000"):
+        assert ss.ASSETS[k][1] == "Equities"
+    obs, d, v = [], date(2012, 1, 2), 100.0
+    while d < date(2026, 10, 1):
+        obs.append((d, v)); d += timedelta(days=1); v *= 1.0003
+    ss._store(db, "NIKKEI", obs)
+    ss._CACHE.clear()
+    a = client.get("/api/seasonality/NIKKEI").json()
+    assert a["name"] == "Nikkei 225" and a["group"] == "Equities"
