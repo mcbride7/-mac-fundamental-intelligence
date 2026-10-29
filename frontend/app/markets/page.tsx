@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import EquitiesPanel from "@/components/EquitiesPanel";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, StatusBadge } from "@/components/ui";
 import { post, useApi } from "@/lib/api";
 import { dateTime, num, signed } from "@/lib/format";
@@ -14,7 +15,8 @@ export default function Markets() {
   const add = async () => { const r = await post("/api/markets/prices", [{ symbol: sym, price: +px }]); setMsg(r.recompute?.message); setPx(""); reload(); };
   return (
     <>
-      <PageTitle title="Markets" subtitle="Latest prices and changes. Prices typed by hand are labelled unverified." />
+      <PageTitle title="Markets" subtitle="Equities, currencies, commodities and crypto: latest prices and changes. Prices typed by hand are labelled unverified." />
+      <div className="mb-6"><EquitiesPanel /></div>
       <ErrorBox error={error} />
       {loading && !data ? <Loading /> : (
         <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">

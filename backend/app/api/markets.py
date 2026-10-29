@@ -56,6 +56,45 @@ def markets(db: Session = Depends(get_db)):
     return market_engine.markets_overview(db)
 
 
+@router.get("/markets/equities")
+def equities_board(db: Session = Depends(get_db)):
+    """Equity quotes from Finnhub: US indices (via ETFs), sectors, countries, mega caps and your own tickers."""
+    from app.services import equities
+
+    return equities.board(db)
+
+
+class EquityIn(BaseModel):
+    symbol: str
+    name: str | None = None
+
+
+@router.post("/markets/equities")
+def equities_add(body: EquityIn, db: Session = Depends(get_db)):
+    from app.services import equities
+
+    try:
+        w = equities.add_symbol(db, body.symbol, body.name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"symbol": w.symbol}
+
+
+@router.delete("/markets/equities/{symbol}")
+def equities_remove(symbol: str, db: Session = Depends(get_db)):
+    from app.services import equities
+
+    equities.remove_symbol(db, symbol)
+    return {"removed": symbol.upper()}
+
+
+@router.post("/markets/equities/refresh")
+def equities_refresh(db: Session = Depends(get_db)):
+    from app.ingestion.registry import run
+
+    return run(db, "equities")
+
+
 @router.post("/markets/prices")
 def add_prices(body: list[PriceIn], db: Session = Depends(get_db)):
     from app.db import utcnow

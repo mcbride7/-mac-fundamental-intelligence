@@ -58,6 +58,8 @@ SOURCES = [
      None, None, 360, {}),
     ("yields", "Government bond yields: euro area, UK, Canada, Australia, Japan, Switzerland (official, daily)", "1", "api",
      "https://data.ecb.europa.eu", None, None, 1440, {}),
+    ("equities", "Finnhub equity quotes (US stocks, sector and country ETFs)", "2", "api", "https://finnhub.io",
+     "US", None, 30, {}),
     ("news", "News headlines (central bank RSS, FXStreet, Investing.com, Finnhub)", "3", "rss", None, None, None,
      60, {}),
     # fetched hourly (free plan limits), so it counts as late after 1 hour and stale after 2
