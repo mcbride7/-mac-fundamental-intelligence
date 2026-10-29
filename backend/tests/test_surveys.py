@@ -56,3 +56,15 @@ def test_heatmap_edit_any_indicator(client, db):
     assert gdp["forecast"] == 0.8 and gdp["currency_impact"] == "Bearish"
     assert client.patch("/api/macro/indicators/ZA_GDP_QOQ", json={"field": "actual", "value": "1", "period": "2026-09"}).status_code == 400
     assert client.patch("/api/macro/indicators/NOPE", json={"field": "actual", "value": "1"}).status_code == 404
+
+
+def test_new_gdp_and_core_rows(client):
+    for ccy, codes in {"CAD": ["CA_GDP_YOY", "CA_CORE_CPI_TRIM_YOY", "CA_CORE_CPI_MEDIAN_YOY"],
+                       "AUD": ["AU_GDP_YOY", "AU_CORE_TRIMMED_MEAN_YOY"], "CHF": ["CH_GDP_YOY", "CH_CORE_CPI_YOY"],
+                       "CNY": ["CN_GDP_YOY", "CN_CORE_CPI_YOY"], "MXN": ["MX_GDP_YOY", "MX_CORE_CPI_YOY"],
+                       "NZD": ["NZ_GDP_YOY", "NZ_CORE_CPI_YOY"], "USD": ["US_GDP_YOY"], "EUR": ["EA_GDP_YOY"],
+                       "GBP": ["GB_GDP_YOY"], "JPY": ["JP_GDP_YOY"], "ZAR": ["ZA_GDP_YOY"]}.items():
+        rows = {r["indicator"] for r in client.get(f"/api/macro/heatmap?currency={ccy}").json()["rows"]}
+        assert set(codes) <= rows, (ccy, set(codes) - rows)
+    r = client.patch("/api/macro/indicators/CA_CORE_CPI_TRIM_YOY", json={"field": "actual", "value": "2.9", "period": "2026-09"})
+    assert r.status_code == 200, r.text

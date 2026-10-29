@@ -141,6 +141,15 @@ _add("NZD", "NZ_CONSUMER_CONF", "ANZ-RM Consumer Confidence", "ANZ Consumer Conf
 _add("CNY", "CN_MANUF_PMI", "Manufacturing PMI")
 _add("CNY", "CN_SERVICES_PMI", "Non-Manufacturing PMI")
 _add("CNY", "CN_CAIXIN_MANUF_PMI", "Caixin Manufacturing PMI", "RatingDog Manufacturing PMI")
+_add("CAD", "CA_CORE_CPI_TRIM_YOY", "Trimmed CPI y/y")
+_add("CAD", "CA_CORE_CPI_MEDIAN_YOY", "Median CPI y/y")
+_add("AUD", "AU_CORE_TRIMMED_MEAN_YOY", "Trimmed Mean CPI y/y")
+_add("CHF", "CH_CORE_CPI_YOY", "Core CPI y/y")
+_add("CNY", "CN_GDP_YOY", "GDP q/y", "GDP y/y")
+_add("GBP", "GB_GDP_YOY", "GDP y/y", "Prelim GDP y/y")
+_add("EUR", "EA_GDP_YOY", "Flash GDP y/y", "GDP y/y")
+_add("CHF", "CH_GDP_YOY", "GDP y/y")
+_add("AUD", "AU_GDP_YOY", "GDP y/y")
 _add("CNY", "CN_CAIXIN_SERVICES_PMI", "Caixin Services PMI", "RatingDog Services PMI")
 
 IMPORTANCE = {"high": "high", "medium": "medium", "low": "low"}
