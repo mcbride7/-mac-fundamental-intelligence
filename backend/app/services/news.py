@@ -3,6 +3,7 @@
 Sources (all free):
   - Central bank press releases (RSS): Fed, ECB, BoE, BoJ, RBA, BoC, RBNZ, SNB
   - FX news headlines (RSS): FXStreet, Investing.com forex news
+  - Bank research (RSS): ING THINK (FX Daily, central bank previews and reviews, country outlooks)
   - Finnhub forex news (if FINNHUB_API_KEY is set)
 Only the headline, a short summary and the link are kept; the full article stays on the publisher's site.
 A feed that fails is skipped (and listed as failed on the page) so one broken feed never stops the rest.
@@ -42,6 +43,7 @@ RSS_FEEDS = [
     ("snb", "Swiss National Bank", "https://www.snb.ch/public/en/rss/pressrel", "central_bank", ["CHF"]),
     ("fxstreet", "FXStreet", "https://www.fxstreet.com/rss/news", "news", []),
     ("investing", "Investing.com", "https://www.investing.com/rss/news_1.rss", "news", []),
+    ("ing", "ING THINK", "https://think.ing.com/rss/", "news", []),  # ING's economics and FX research (free)
 ]
 
 CURRENCY_WORDS = {
@@ -84,12 +86,14 @@ HAWKISH = [r"hawkish", r"rate hikes?", r"hikes? rates?", r"hiking", r"raises? (i
            r"raised (interest )?rates?", r"rate increase", r"tighten(ing|s|ed)?", r"higher for longer",
            r"sticky inflation", r"inflation (rises|rose|accelerat\w*|jumps|jumped|heats? up|surges?)",
            r"hot(ter)?(-than-expected)? (inflation|cpi)", r"stronger[- ]than[- ]expected", r"beats? (expectations|forecasts?)",
-           r"strong (jobs|payrolls|data)", r"no (rush|hurry) to cut", r"fewer (rate )?cuts"]
+           r"strong (jobs|payrolls|data)", r"no (rush|hurry) to cut", r"fewer (rate )?cuts",
+           r"(another|one more|further|a) hike", r"hikes? (in|at|this|next) ", r"push(es|ed)? back on (rate )?cuts"]
 DOVISH = [r"dovish", r"rate cuts?", r"cuts? (interest )?rates?", r"cutting", r"eas(ing|es|ed) (policy|rates)",
           r"monetary easing", r"lowers? (interest )?rates?", r"lowered (interest )?rates?", r"rate reduction",
           r"slowdown", r"recession", r"contraction", r"weaker[- ]than[- ]expected", r"miss(es|ed)? (expectations|forecasts?)",
           r"disinflation", r"(inflation|prices) (cools?|cooled|eases?|eased|slows?|slowed|falls?|fell)",
-          r"job losses", r"unemployment (rises|rose|jumps|climbs)", r"more (rate )?cuts", r"stimulus"]
+          r"job losses", r"unemployment (rises|rose|jumps|climbs)", r"more (rate )?cuts", r"stimulus",
+          r"(another|one more|further|a) cut", r"cuts? (in|at|this|next) ", r"door open to (easing|cuts?)", r"easing (cycle|bias)"]
 RISK_OFF = [r"risk[- ]off", r"safe[- ]havens?", r"sell[- ]?off", r"plunges?", r"tumbles?", r"slumps?", r"crash",
             r"turmoil", r"\bwar\b", r"escalat\w+", r"fears?", r"panic", r"rout", r"flight to safety"]
 RISK_ON = [r"risk[- ]on", r"rall(y|ies|ied)", r"record highs?", r"surges?", r"optimism", r"ceasefire",

@@ -60,7 +60,7 @@ SOURCES = [
      "https://data.ecb.europa.eu", None, None, 1440, {}),
     ("equities", "Finnhub equity quotes (US stocks, sector and country ETFs)", "2", "api", "https://finnhub.io",
      "US", None, 30, {}),
-    ("news", "News headlines (central bank RSS, FXStreet, Investing.com, Finnhub)", "3", "rss", None, None, None,
+    ("news", "News headlines (central bank RSS, FXStreet, Investing.com, ING THINK, Finnhub)", "3", "rss", None, None, None,
      60, {}),
     # fetched hourly (free plan limits), so it counts as late after 1 hour and stale after 2
     ("twelvedata", "Twelve Data market prices", "2", "api", "https://twelvedata.com", None, None, 60, {}),
