@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import CbShortcuts from "@/components/CbShortcuts";
+import CycleRadar from "@/components/CycleRadar";
 import { ErrorBox, Loading, PageTitle, PolicyDial } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { date, num, signed, toneClass } from "@/lib/format";
@@ -12,6 +13,7 @@ export default function CentralBanks() {
   return (
     <>
       <PageTitle title="Central banks" subtitle="Policy scores run from 0 (extremely dovish) to 100 (extremely hawkish). The thin mark shows the previous reading." />
+      <div className="mb-6"><CycleRadar /></div>
       <ErrorBox error={error} />
       {loading && !data ? <Loading /> : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

@@ -86,6 +86,14 @@ class FetchIn(BaseModel):
     url: str | None = None   # a document link pasted by the person; empty = find the newest one
 
 
+@router.get("/cycles")
+def policy_cycles(db: Session = Depends(get_db)):
+    """Which banks are hiking / cutting / holding, whether the data backs it, and the diverging pairs."""
+    from app.services import cycles
+
+    return cycles.board(db)
+
+
 @router.get("/shortcuts")
 def shortcuts():
     """Official statement and projections pages for every central bank."""
