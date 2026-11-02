@@ -6,6 +6,7 @@ import { useState } from "react";
 import CbShortcuts from "@/components/CbShortcuts";
 import QuickEdit from "@/components/QuickEdit";
 import StatementCompare, { StatementReader } from "@/components/StatementCompare";
+import PressConferences from "@/components/PressConferences";
 import PricingLinks from "@/components/PricingLinks";
 import { Button, Empty, ErrorBox, Loading, PageTitle, Panel, PolicyDial, Stat, StatusBadge } from "@/components/ui";
 import { patch, post, useApi } from "@/lib/api";
@@ -16,7 +17,7 @@ const READ_CLS: Record<string, string> = {
 };
 
 const TABS = ["Overview", "Policy", "Statement comparison", "Projections", "Forecast accuracy", "Where are we now",
-  "Market expectations", "History"] as const;
+  "Press conference", "Market expectations", "History"] as const;
 
 export default function Bank() {
   const { code } = useParams<{ code: string }>();
@@ -47,6 +48,7 @@ export default function Bank() {
       {tab === "Projections" && <Projections code={code} />}
       {tab === "Forecast accuracy" && <Accuracy acc={d.forecast_accuracy} />}
       {tab === "Where are we now" && <WhereAreWe w={d.where_are_we} />}
+      {tab === "Press conference" && <PressConferences code={d.code} name={d.short_name || d.name} onChanged={reload} />}
       {tab === "Market expectations" && <Expectations d={d} />}
       {tab === "History" && <History code={code} />}
       {(tab === "Overview" || tab === "Statement comparison" || tab === "Projections") && (

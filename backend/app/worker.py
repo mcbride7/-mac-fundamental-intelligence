@@ -37,6 +37,7 @@ celery_app.conf.beat_schedule = {
                          "schedule": crontab(minute=0, hour=6, day_of_week="sat,mon,tue"), "args": ["cftc"]},
     "yields-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=5, hour="*/6"), "args": ["yields"]},
     "equities-15m": {"task": "app.worker.run_source_task", "schedule": crontab(minute="*/15"), "args": ["equities"]},
+    "pressers-2h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=50, hour="*/2"), "args": ["pressers"]},
     "news-20m": {"task": "app.worker.run_source_task", "schedule": crontab(minute="*/20"), "args": ["news"]},
     "myfxbook-2h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=40, hour="*/2"),
                     "args": ["myfxbook"]},

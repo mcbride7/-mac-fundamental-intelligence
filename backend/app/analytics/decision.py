@@ -86,7 +86,8 @@ def _clip(x: float, lim: float) -> float:
 
 def characterise(decision: str | None, tone_now: float | None, tone_prev: float | None, dissent: dict | None,
                  expected: str | None = None, prob_cut: float | None = None, prob_hike: float | None = None,
-                 inflation: float | None = None, target: float | None = None) -> dict | None:
+                 inflation: float | None = None, target: float | None = None,
+                 presser_vs_statement: float | None = None, presser_tone: float | None = None) -> dict | None:
     """Hawkish hold / dovish hold (or hawkish cut, dovish hike...) from:
       - statement wording: change in tone vs the previous statement (35%) and the tone itself (15%)
       - votes against the decision and their direction (25%)
@@ -130,6 +131,16 @@ def characterise(decision: str | None, tone_now: float | None, tone_prev: float 
         parts["surprise"] = (_clip(float(surprise), 1), 0.15)
         reasons.append(f"Market expected {exp.lower()}: "
                        + ("in line" if surprise == 0 else f"{'hawkish' if surprise > 0 else 'dovish'} surprise"))
+    if presser_vs_statement is not None:
+        parts["press_conference"] = (_clip(presser_vs_statement / 20, 1), 0.20)
+        if abs(presser_vs_statement) >= 5:
+            reasons.append(f"Press conference sounded more {'hawkish' if presser_vs_statement > 0 else 'dovish'} than the "
+                           f"statement ({presser_vs_statement:+.0f})")
+        else:
+            reasons.append("Press conference in line with the statement")
+    elif presser_tone is not None:
+        parts["press_conference"] = (_clip(presser_tone / 40, 1), 0.15)
+        reasons.append(f"Press conference tone {presser_tone:+.0f}")
     if inflation is not None and target is not None:
         gap = inflation - target
         parts["backdrop"] = (_clip(gap / 1.0, 1), 0.10)

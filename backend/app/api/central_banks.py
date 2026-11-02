@@ -275,6 +275,84 @@ def where(cb_id: str, db: Session = Depends(get_db)):
     return where_are_we(db, _cb(db, cb_id).code)
 
 
+class PresserIn(BaseModel):
+    text: str | None = None
+    url: str | None = None
+    held_on: date | None = None
+    title: str | None = None
+
+
+@router.get("/{cb_id}/press-conferences")
+def press_conferences(cb_id: str, db: Session = Depends(get_db)):
+    from app.models import PressConference
+    from app.services import pressers
+
+    cb = _cb(db, cb_id)
+    rows = db.scalars(select(PressConference).where(PressConference.central_bank_id == cb.id)
+                      .order_by(PressConference.held_on.desc()).limit(30))
+    return {"items": [pressers.row(p) for p in rows], "auto": cb.code in pressers.AUTO,
+            "last_decision_date": cb.last_decision_date}
+
+
+@router.get("/{cb_id}/press-conferences/{pc_id}")
+def press_conference(cb_id: str, pc_id: int, db: Session = Depends(get_db)):
+    from app.models import PressConference
+    from app.services import pressers
+
+    cb = _cb(db, cb_id)
+    pc = db.get(PressConference, pc_id)
+    if pc is None or pc.central_bank_id != cb.id:
+        raise HTTPException(404, "Press conference not found")
+    return pressers.row(pc, full=True)
+
+
+@router.post("/{cb_id}/press-conferences")
+def add_press_conference(cb_id: str, body: PresserIn, db: Session = Depends(get_db)):
+    """Paste a transcript, or give its link (web page or PDF)."""
+    from app.services import pressers
+
+    cb = _cb(db, cb_id)
+    day = body.held_on or cb.last_decision_date or date.today()
+    try:
+        if body.url and not body.text:
+            pc = pressers.from_url(db, cb, body.url.strip(), day, body.title)
+        else:
+            pc = pressers.store(db, cb, body.text or "", day, body.title, body.url, "pasted")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Could not read that link: {exc}")
+    return pressers.row(pc, full=True)
+
+
+@router.post("/{cb_id}/press-conferences/fetch")
+def fetch_press_conference(cb_id: str, body: PresserIn | None = None, db: Session = Depends(get_db)):
+    """Fetch the Fed or ECB transcript for the last decision (or the date given)."""
+    from app.services import pressers
+
+    cb = _cb(db, cb_id)
+    try:
+        pc = pressers.fetch(db, cb, body.held_on if body else None)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Transcript not available yet: {exc}")
+    return pressers.row(pc, full=True)
+
+
+@router.delete("/{cb_id}/press-conferences/{pc_id}")
+def delete_press_conference(cb_id: str, pc_id: int, db: Session = Depends(get_db)):
+    from app.models import PressConference
+
+    cb = _cb(db, cb_id)
+    pc = db.get(PressConference, pc_id)
+    if pc is None or pc.central_bank_id != cb.id:
+        raise HTTPException(404, "Press conference not found")
+    db.delete(pc)
+    db.commit()
+    return {"deleted": pc_id}
+
+
 @router.get("/{cb_id}/meetings")
 def meetings(cb_id: str, db: Session = Depends(get_db)):
     cb = _cb(db, cb_id)

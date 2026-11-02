@@ -82,11 +82,23 @@ def characterise_latest(db: Session, cb: CentralBank, snap) -> dict | None:
                                                              CentralBankMeeting.meeting_date == when))
     before = st.published_at if st is not None else None
     rx = fnd.latest_rate_expectation(db, cb.code, before=before) if before is not None else None
+    from datetime import timedelta
+
+    from app.models import PressConference
+
+    pc = None
+    if when is not None:
+        pc = db.scalar(select(PressConference).where(PressConference.central_bank_id == cb.id,
+                                                     PressConference.held_on >= when - timedelta(days=3),
+                                                     PressConference.held_on <= when + timedelta(days=3))
+                       .order_by(PressConference.held_on.desc()))
     res = characterise(decision, st.tone_score if st else None, prev.tone_score if prev else None,
                        parse_dissent(st.text) if st else None,
                        expected=meeting.expected_decision if meeting else None,
                        prob_cut=rx.prob_cut if rx else None, prob_hike=rx.prob_hike if rx else None,
-                       inflation=snap.inflation, target=cb.inflation_target)
+                       inflation=snap.inflation, target=cb.inflation_target,
+                       presser_vs_statement=pc.vs_statement if pc else None,
+                       presser_tone=pc.tone if pc and pc.vs_statement is None else None)
     if res is not None and st is None:
         res["reasons"].insert(0, "No decision statement stored for this meeting: fetch it for a fuller read")
     return res
