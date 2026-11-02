@@ -290,7 +290,8 @@ def press_conferences(cb_id: str, db: Session = Depends(get_db)):
     cb = _cb(db, cb_id)
     rows = db.scalars(select(PressConference).where(PressConference.central_bank_id == cb.id)
                       .order_by(PressConference.held_on.desc()).limit(30))
-    return {"items": [pressers.row(p) for p in rows], "auto": cb.code in pressers.AUTO,
+    return {"items": [pressers.row(p) for p in rows], "auto": cb.code in pressers.FEED_OF,
+            "full_transcript": cb.code in pressers.AUTO,
             "last_decision_date": cb.last_decision_date}
 
 

@@ -192,8 +192,11 @@ export default function PressConferences({ code, name, onChanged }: { code: stri
         {data?.auto && (
           <div className="mb-4">
             <Button onClick={() => run(() => post(`/api/central-banks/${code}/press-conferences/fetch`, { held_on: day || null }))} disabled={busy}>
-              {busy ? "Working…" : `Fetch the ${name} transcript`}</Button>
-            <p className="mt-1 text-xs text-muted">Usually published a few hours after the decision. The app also checks every 2 hours for a week after each decision.</p>
+              {busy ? "Working…" : data.full_transcript ? `Fetch the ${name} transcript` : `Look for the latest ${name} press conference`}</Button>
+            <p className="mt-1 text-xs text-muted">{data.full_transcript
+              ? "The full transcript is usually published a few hours after the decision."
+              : `Picks up press conference transcripts, opening statements and introductory remarks from the ${name}'s press feed. If the Q&A was video only, paste a transcript (e.g. from YouTube).`}
+              {" "}The app also checks automatically every 2 hours.</p>
           </div>
         )}
         <label className="block text-sm">Meeting date

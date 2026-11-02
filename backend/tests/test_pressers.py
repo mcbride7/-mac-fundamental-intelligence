@@ -50,5 +50,37 @@ def test_store_compare_and_decision_read(client, db):
     read = client.get("/api/central-banks/FED").json()["decision_read"]
     assert any("Press conference" in x for x in read["reasons"])
     assert client.post("/api/central-banks/FED/press-conferences", json={"text": "too short"}).status_code == 400
-    assert client.post("/api/central-banks/RBA/press-conferences/fetch", json={}).status_code == 400
+    assert client.post("/api/central-banks/BANXICO/press-conferences/fetch", json={}).status_code == 400
     assert client.delete(f"/api/central-banks/FED/press-conferences/{d['id']}").status_code == 200
+
+
+def test_feed_pickup(client, db, monkeypatch):
+    from app.db import utcnow
+    from app.models import NewsArticle
+    from app.services import pressers
+
+    db.add(NewsArticle(uid="boc-os", title="Opening statement by Governor Macklem: Monetary Policy Report press conference",
+                       url="https://example.org/boc-opening", source_name="Bank of Canada", feed="boc", kind="central_bank",
+                       published_at=utcnow(), currencies=["CAD"], topics=[], tone="neutral"))
+    db.add(NewsArticle(uid="boc-x", title="Bank of Canada publishes financial system review", url="https://example.org/x",
+                       source_name="Bank of Canada", feed="boc", kind="central_bank", published_at=utcnow(), currencies=["CAD"],
+                       topics=[], tone="neutral"))
+    db.commit()
+
+    class R:
+        headers = {"content-type": "text/html"}
+        content = ("<html><body><p>" + "Inflation remains elevated and we are prepared to raise rates further if needed. "
+                   * 8 + "</p></body></html>").encode()
+
+    monkeypatch.setattr(pressers, "http_get", lambda url, retries=1: R())
+    r = client.post("/api/central-banks/BOC/press-conferences/fetch", json={})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["url"] == "https://example.org/boc-opening" and d["tone"] > 0
+    lst = client.get("/api/central-banks/BOC/press-conferences").json()
+    assert lst["auto"] is True and lst["full_transcript"] is False and len(lst["items"]) == 1
+    # the scheduled job doesn't add it twice
+    from app.ingestion.registry import run
+    assert run(db, "pressers")["status"] == "OK"
+    assert len(client.get("/api/central-banks/BOC/press-conferences").json()["items"]) == 1
+    assert client.post("/api/central-banks/SARB/press-conferences/fetch", json={}).status_code == 400

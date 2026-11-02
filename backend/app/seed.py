@@ -60,7 +60,7 @@ SOURCES = [
      "https://data.ecb.europa.eu", None, None, 1440, {}),
     ("equities", "Finnhub equity quotes (US stocks, sector and country ETFs)", "2", "api", "https://finnhub.io",
      "US", None, 30, {}),
-    ("pressers", "Press conference transcripts (Fed, ECB) after each decision", "1", "official", None, None, None,
+    ("pressers", "Press conferences: Fed and ECB transcripts, and BoE, BoJ, RBA, BoC, SNB, RBNZ from their press feeds", "1", "official", None, None, None,
      1440, {}),
     ("news", "News headlines (central bank RSS, FXStreet, Investing.com, ING THINK, Finnhub)", "3", "rss", None, None, None,
      60, {}),

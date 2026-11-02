@@ -1,5 +1,5 @@
-"""Press conferences: fetch (Fed, ECB), paste or link a transcript, analyse it and compare it with the
-statement and with the previous press conference."""
+"""Press conferences: fetch them (Fed and ECB transcripts by date; the BoE, BoJ, RBA, BoC, SNB and RBNZ from their
+press feeds), or paste / link a transcript; analyse it and compare it with the statement and the previous one."""
 from __future__ import annotations
 
 import hashlib
@@ -16,7 +16,11 @@ from app.services.audit import alert
 
 FED_PDF = "https://www.federalreserve.gov/mediacenter/files/FOMCpresconf{d}.pdf"
 ECB_RSS = "https://www.ecb.europa.eu/rss/press.html"
-AUTO = {"FED", "ECB"}
+AUTO = {"FED", "ECB"}  # full transcript fetched by date
+# every bank whose press feed the News tab already reads: their press conference items are picked up from it
+FEED_OF = {"FED": "fed", "ECB": "ecb", "BOE": "boe", "BOJ": "boj", "RBA": "rba", "BOC": "boc", "RBNZ": "rbnz", "SNB": "snb"}
+PRESSER_TITLE = re.compile(r"(press conference|media conference|news conference|press briefing|opening statement|"
+                           r"opening remarks|introductory remarks|introductory statement|governor'?s? (?:remarks|statement))", re.I)
 
 
 def _text_from(content: bytes, ctype: str) -> str:
@@ -106,12 +110,65 @@ def store(db: Session, cb: CentralBank, text: str, held_on: date, title: str | N
     return pc
 
 
+def feed_items(db: Session, cb: CentralBank, days: int = 10) -> list[dict]:
+    """Press-conference items from the bank's press feed: from the News tab's stored headlines, or the feed itself."""
+    from app.models import NewsArticle
+    from app.services import news
+
+    key = FEED_OF.get(cb.code)
+    if key is None:
+        return []
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    items = [{"title": a.title, "link": a.url, "published": a.published_at}
+             for a in db.scalars(select(NewsArticle).where(NewsArticle.feed == key, NewsArticle.published_at >= since))]
+    if not items:
+        url = next((u for k, _, u, _, _ in news.RSS_FEEDS if k == key), None)
+        if url:
+            items = news.fetch_rss(url)
+    out = []
+    for it in items:
+        pub = it.get("published")
+        if pub is not None and pub.tzinfo is None:
+            pub = pub.replace(tzinfo=timezone.utc)
+        if it.get("link") and PRESSER_TITLE.search(it["title"] or "") and (pub is None or pub >= since):
+            out.append({**it, "published": pub})
+    return sorted(out, key=lambda x: x["published"] or since, reverse=True)
+
+
+def fetch_from_feed(db: Session, cb: CentralBank) -> list[PressConference]:
+    got = []
+    for it in feed_items(db, cb):
+        if db.scalar(select(PressConference.id).where(PressConference.url == it["link"])):
+            continue
+        r = http_get(it["link"], retries=1)
+        text = _text_from(r.content, r.headers.get("content-type", ""))
+        day = (it["published"] or datetime.now(timezone.utc)).date()
+        try:
+            got.append(store(db, cb, text, day, it["title"][:300], it["link"], "automated"))
+        except ValueError:  # page too short to be a transcript (e.g. just a video link)
+            continue
+    return got
+
+
 def fetch(db: Session, cb: CentralBank, day: date | None = None) -> PressConference:
-    if cb.code not in AUTO:
-        raise ValueError(f"Automatic fetching covers the Fed and ECB; paste the {cb.short_name} transcript or its link instead")
-    day = day or cb.last_decision_date or date.today()
-    text, url = (fetch_fed if cb.code == "FED" else fetch_ecb)(day)
-    return store(db, cb, text, day, f"{cb.short_name} press conference, {day.strftime('%d %b %Y')}", url, "automated")
+    if cb.code in AUTO:
+        day = day or cb.last_decision_date or date.today()
+        try:
+            text, url = (fetch_fed if cb.code == "FED" else fetch_ecb)(day)
+            return store(db, cb, text, day, f"{cb.short_name} press conference, {day.strftime('%d %b %Y')}", url, "automated")
+        except SourceUnavailable:
+            pass  # fall back to the press feed below
+    if cb.code not in FEED_OF:
+        raise ValueError(f"The app doesn't read a press feed for the {cb.short_name}: paste the transcript or its link instead")
+    got = fetch_from_feed(db, cb)
+    if got:
+        return got[0]
+    latest = db.scalar(select(PressConference).where(PressConference.central_bank_id == cb.id)
+                       .order_by(PressConference.held_on.desc()))
+    if latest is not None and (date.today() - latest.held_on).days <= 10:
+        return latest
+    raise SourceUnavailable(f"No {cb.short_name} press conference or opening statement found in its press feed in the "
+                            "last 10 days. If it was video only, paste a transcript (e.g. from YouTube).")
 
 
 def from_url(db: Session, cb: CentralBank, url: str, held_on: date, title: str | None = None) -> PressConference:
@@ -122,28 +179,37 @@ def from_url(db: Session, cb: CentralBank, url: str, held_on: date, title: str |
 
 
 def run_pressers(db: Session, src: Source) -> int:
-    """After a Fed or ECB decision, look for the press conference transcript (published hours later)."""
+    """After each decision: Fed and ECB full transcripts by date, and every bank's press feed for press-conference,
+    media-conference, opening-statement or introductory-remarks items."""
     from app.services import data_access as da
 
     n, errors = 0, []
     for code in sorted(AUTO):
         cb = da.cb_by_code(db, code)
-        if cb is None or cb.last_decision_date is None:
+        if cb is None or cb.last_decision_date is None or (date.today() - cb.last_decision_date).days > 7:
             continue
         day = cb.last_decision_date
-        if (date.today() - day).days > 7:
-            continue
         have = db.scalar(select(PressConference.id).where(PressConference.central_bank_id == cb.id,
                                                           PressConference.held_on >= day - timedelta(days=2),
                                                           PressConference.held_on <= day + timedelta(days=2)))
         if have:
             continue
         try:
-            fetch(db, cb, day)
+            text, url = (fetch_fed if code == "FED" else fetch_ecb)(day)
+            store(db, cb, text, day, f"{cb.short_name} press conference, {day.strftime('%d %b %Y')}", url, "automated")
             n += 1
         except Exception as exc:
             db.rollback()
-            errors.append(f"{code}: {exc}"[:200])
+            errors.append(f"{code}: {exc}"[:160])
+    for code in FEED_OF:
+        cb = da.cb_by_code(db, code)
+        if cb is None:
+            continue
+        try:
+            n += len(fetch_from_feed(db, cb))
+        except Exception as exc:
+            db.rollback()
+            errors.append(f"{code} feed: {exc}"[:160])
     return (n, "Not found yet: " + "; ".join(errors)) if errors else n
 
 
