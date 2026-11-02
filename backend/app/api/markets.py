@@ -56,6 +56,14 @@ def markets(db: Session = Depends(get_db)):
     return market_engine.markets_overview(db)
 
 
+@router.get("/intermarket")
+def intermarket(window: int = 60, db: Session = Depends(get_db)):
+    """How FX, yields, stocks, commodities and volatility move together; out-of-line pairs; market regime."""
+    from app.services import intermarket as im
+
+    return im.board(db, window if window in (20, 60, 120) else 60)
+
+
 @router.get("/markets/equities")
 def equities_board(db: Session = Depends(get_db)):
     """Equity quotes from Finnhub: US indices (via ETFs), sectors, countries, mega caps and your own tickers."""

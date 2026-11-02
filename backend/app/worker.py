@@ -41,8 +41,8 @@ celery_app.conf.beat_schedule = {
     "news-20m": {"task": "app.worker.run_source_task", "schedule": crontab(minute="*/20"), "args": ["news"]},
     "myfxbook-2h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=40, hour="*/2"),
                     "args": ["myfxbook"]},
-    "seasonality-weekly": {"task": "app.worker.run_source_task",
-                           "schedule": crontab(minute=30, hour=4, day_of_week="sun"), "args": ["seasonality"]},
+    "seasonality-daily": {"task": "app.worker.run_source_task",  # also feeds Intermarket, so daily
+                          "schedule": crontab(minute=30, hour=5), "args": ["seasonality"]},
     "risk-sentiment-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=50, hour="*/6"),
                           "args": ["risk"]},
     "forexfactory-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=20, hour="*/6"),

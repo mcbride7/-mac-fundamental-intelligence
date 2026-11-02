@@ -36,7 +36,8 @@ OTHER = {"XAUUSD": ("Gold", "Metals"), "XAGUSD": ("Silver", "Metals"), "US500": 
 CATEGORY = {**{p: "FX majors" for p in MAJORS}, **{p: "FX crosses" for p in CROSSES}, **{p: "FX emerging" for p in EM},
             **{k: v[1] for k, v in OTHER.items()}}
 
-TREND_COLS = [("trend", "Trend"), ("seasonality", "Seasonality"), ("cot", "COT"), ("crowd", "Retail sentiment"), ("news", "News tone")]
+TREND_COLS = [("trend", "Trend"), ("seasonality", "Seasonality"), ("cot", "COT"), ("crowd", "Retail sentiment"), ("news", "News tone"),
+              ("intermarket", "Intermarket")]
 MACRO_COLS = [("cb_div", "CB diverg."), ("cb", "CB tone"), ("rate_exp", "Rate expect."), ("gdp", "GDP"), ("mpmi", "mPMI"), ("spmi", "sPMI"),
               ("retail_sales", "Retail sales"), ("conf", "Cnsmr conf"), ("cpi", "CPI YoY"), ("ppi", "PPI"),
               ("pce", "PCE YoY"), ("rates", "Interest rates"), ("nfp", "NFP / Jobs"), ("unemp", "Unemploy. rate"),
@@ -188,6 +189,13 @@ def compute(db: Session, today: date | None = None) -> dict:
     from app.services import news as nw
 
     news_ccy = nw.tone_cells(db)
+    try:
+        from app.services import intermarket as im
+
+        imb = im.board(db)
+        im_ccy, im_conf = imb["currency_scores"], imb["confirmation"]
+    except Exception:  # intermarket data missing: leave the column blank
+        im_ccy, im_conf = {}, {}
     pscore = {c: (snaps[c].policy_score if snaps.get(c) is not None else None) for c in FX + ["ZAR", "MXN"]}
     others = [v for c, v in pscore.items() if c != "USD" and v is not None]
     world = statistics.fmean(others) if others else None
@@ -213,6 +221,10 @@ def compute(db: Session, today: date | None = None) -> dict:
                                    f"{'Fed relatively dovish (supportive)' if gap > 0 else 'Fed relatively hawkish (headwind)' if gap < 0 else 'in line'}")
             cells["cot"] = cot_cell(db, COT_CODE[asset])
             # hawkish US headlines weigh on gold, silver and T-notes; risk-on headlines help stocks
+            ic = im_conf.get(asset)
+            cells["intermarket"] = ic["score"] if ic else None
+            if ic and ic["reasons"]:
+                notes["intermarket"] = "; ".join(ic["reasons"]).capitalize()
             nu = news_ccy.get("USD")
             if asset == "US500":
                 cells["news"] = None if nu is None else news_ccy.get("_risk", 0) - nu
@@ -238,6 +250,15 @@ def compute(db: Session, today: date | None = None) -> dict:
                                    f"100 = very hawkish): {CB_NAME.get(hawk, hawk)} more hawkish by {abs(gap):.0f} points")
             xb, xq = cot_ccy.get(b), cot_ccy.get(q)
             cells["cot"] = (xb or 0) - (xq or 0) if (xb is not None or xq is not None) else None
+            # intermarket: each currency's support against the dollar (USD = 0), base minus quote
+            if b in im_ccy and q in im_ccy:
+                cells["intermarket"] = im_ccy[b] - im_ccy[q]
+                direct = im_conf.get(asset) or im_conf.get(q + b)
+                parts = [f"{c} {'+' if im_ccy[c] > 0 else ''}{im_ccy[c]}" for c in (b, q) if c != "USD"]
+                notes["intermarket"] = ("; ".join(direct["reasons"]).capitalize() + " · " if direct and direct["reasons"] else "") \
+                    + "Support vs the dollar: " + ", ".join(parts)
+            else:
+                cells["intermarket"] = None
             nb, nq = news_ccy.get(b), news_ccy.get(q)
             cells["news"] = (nb or 0) - (nq or 0) if (nb is not None or nq is not None) else None
             mode = "pct"
@@ -252,7 +273,7 @@ def compute(db: Session, today: date | None = None) -> dict:
         cells["crowd"] = None if rs is None else (1 if rs >= 0.5 else -1 if rs <= -0.5 else 0)
         cells = {k: (None if v is None else max(-2, min(2, int(v)))) for k, v in cells.items()}
         score = sum(v for v in cells.values() if v is not None)
-        tech = cells.get("trend") or 0
+        tech = (cells.get("trend") or 0) + (cells.get("intermarket") or 0)
         sentcot = (cells.get("cot") or 0) + (cells.get("crowd") or 0) + (cells.get("news") or 0)
         macro_sum = sum((cells.get(k) or 0) for k, _ in MACRO_COLS)
         rows.append({"symbol": asset, "name": name, "category": CATEGORY[asset], "score": score, "bias": bias_of(score),

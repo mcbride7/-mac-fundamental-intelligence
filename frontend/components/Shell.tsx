@@ -17,6 +17,7 @@ const NAV: { href: string; label: string }[] = [
   { href: "/news", label: "News" },
   { href: "/macro", label: "Macro" },
   { href: "/risk", label: "Risk sentiment" },
+  { href: "/intermarket", label: "Intermarket" },
   { href: "/cot", label: "COT positioning" },
   { href: "/seasonality", label: "Seasonality" },
   { href: "/currencies", label: "Currencies" },

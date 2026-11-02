@@ -24,11 +24,12 @@ export default function ScoreNote() {
           <li><b>COT</b>: big speculators adding longs (+) or shorts (−); crowded extremes count against.</li>
           <li><b>Retail sentiment</b>: read the opposite way; most retail traders long = bearish.</li>
           <li><b>News tone</b>: hawkish minus dovish headlines, last 3 days.</li>
+          <li><b>Intermarket</b>: whether yields, stocks, oil, gold and volatility are pushing the pair up (+) or down (−), plus a catch-up nudge when it&rsquo;s out of line with them.</li>
           <li><b>CB diverg.</b>: gap between the two central banks&rsquo; policy scores.</li>
           <li><b>CB tone / Rate expect. / Interest rates</b>: hawkish statements, hikes priced in, and the last decision (hike + / cut −).</li>
           <li><b>Data columns</b> (GDP, PMIs, CPI, jobs…): latest release beat (+) or missed (−) the forecast in the hawkish direction. Higher unemployment or claims count as −.</li>
           <li><b>Gold, silver, T-note</b> read US data the other way round: soft US data = bullish.</li>
-          <li><b>Summary filters</b>: Technical = Trend · Sentiment + COT = COT + Retail + News · Macro = all the macro columns.</li>
+          <li><b>Summary filters</b>: Technical = Trend + Intermarket · Sentiment + COT = COT + Retail + News · Macro = all the macro columns.</li>
         </ul>
       }>
       <ul className="grid grid-cols-2 gap-x-2 gap-y-1">
