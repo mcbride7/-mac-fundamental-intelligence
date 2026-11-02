@@ -65,13 +65,15 @@ export default function NewsPage() {
   const [ccy, setCcy] = useState("");
   const [topic, setTopic] = useState("");
   const [tone, setTone] = useState("");
-  const [kind, setKind] = useState("");
+  const [src, setSrc] = useState("");  // "", "kind:central_bank", "kind:news" or "site:<name>"
+  const kind = src.startsWith("kind:") ? src.slice(5) : "";
+  const site = src.startsWith("site:") ? src.slice(5) : "";
   const [q, setQ] = useState("");
   const [days, setDays] = useState(3);
   const [busy, setBusy] = useState(false);
   const [pick, setPick] = useState("");  // tile whose scoring is shown ("RISK" for the risk mood)
   const qs = new URLSearchParams({ days: String(days), ...(ccy && { currency: ccy }), ...(topic && { topic }),
-    ...(tone && { tone }), ...(kind && { kind }), ...(q && { q }) }).toString();
+    ...(tone && { tone }), ...(kind && { kind }), ...(site && { source: site }), ...(q && { q }) }).toString();
   const { data, error, loading, reload } = useApi<any>(`/api/news?${qs}`);
   const refresh = async () => { setBusy(true); try { await post("/api/news/refresh"); reload(); } finally { setBusy(false); } };
   const feeds = Object.entries<any>(data?.feeds || {});
@@ -131,7 +133,22 @@ export default function NewsPage() {
             {sel("Currency", ccy, setCcy, [["", "All"], ...CCYS.map((c) => [c, LABEL[c] || c] as [string, string])])}
             {sel("Topic", topic, setTopic, [["", "All topics"], ...(data?.topics || []).map((t: string) => [t, t] as [string, string])])}
             {sel("Tone", tone, setTone, [["", "Any"], ["hawkish", "Hawkish"], ["dovish", "Dovish"], ["neutral", "Neutral"], ["risk_on", "Risk-on"], ["risk_off", "Risk-off"]])}
-            {sel("Source", kind, setKind, [["", "All"], ["central_bank", "Central banks only"], ["news", "News sites only"]])}
+            <label className="flex min-w-0 flex-col gap-1 text-xs text-muted">Source
+              <select value={src} onChange={(e) => setSrc(e.target.value)} className="rounded border border-line bg-panel-2 px-2 py-1.5 text-sm text-text">
+                <option value="">All sources</option>
+                <option value="kind:central_bank">Central banks only</option>
+                <option value="kind:news">News sites only</option>
+                {(["central_bank", "news"] as const).map((k) => {
+                  const list = (data?.sources || []).filter((x: any) => x.kind === k);
+                  return list.length ? (
+                    <optgroup key={k} label={k === "central_bank" ? "One central bank" : "One news site"}>
+                      {list.map((x: any) => <option key={x.name} value={`site:${x.name}`}>{x.name} ({x.count})</option>)}
+                    </optgroup>
+                  ) : null;
+                })}
+                {site && !(data?.sources || []).some((x: any) => x.name === site) && <option value={`site:${site}`}>{site}</option>}
+              </select>
+            </label>
             {sel("Period", String(days), (v) => setDays(Number(v)), [["1", "Last 24 hours"], ["3", "Last 3 days"], ["7", "Last 7 days"], ["30", "Last 30 days"]])}
           </div>
           <ErrorBox error={error} />
@@ -142,7 +159,8 @@ export default function NewsPage() {
               {data.articles.map((a: any) => (
                 <li key={a.id} className="py-3">
                   <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                    <span className={a.kind === "central_bank" ? "font-medium text-verify" : ""}>{a.source}</span>
+                    <button onClick={() => setSrc(`site:${a.source}`)} title={`Show only ${a.source}`}
+                      className={`hover:underline ${a.kind === "central_bank" ? "font-medium text-verify" : ""}`}>{a.source}</button>
                     <span>· {ago(a.published_at)}</span>
                     {a.importance === "high" && <span className="rounded bg-amber/20 px-1.5 py-px font-medium text-amber">High impact</span>}
                     {a.tone !== "neutral" && <span className={`rounded px-1.5 py-px ${TONE_CLS[a.tone]}`}>{a.tone === "hawkish" ? "Hawkish" : "Dovish"}</span>}

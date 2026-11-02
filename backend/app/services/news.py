@@ -282,14 +282,16 @@ def row(a: NewsArticle) -> dict:
 
 
 def listing(db: Session, currency: str | None = None, topic: str | None = None, tone: str | None = None,
-            kind: str | None = None, q: str | None = None, days: int = 7, limit: int = 150) -> dict:
+            kind: str | None = None, q: str | None = None, days: int = 7, limit: int = 150,
+            source: str | None = None) -> dict:
     since = utcnow() - timedelta(days=days)
     arts = list(db.scalars(select(NewsArticle).where(NewsArticle.published_at >= since)
                            .order_by(NewsArticle.published_at.desc())))
     def ok(a: NewsArticle) -> bool:
         return ((not currency or currency.upper() in (a.currencies or [])) and (not topic or topic in (a.topics or []))
                 and (not tone or (a.tone == tone if tone in ("hawkish", "dovish", "neutral") else a.risk == tone))
-                and (not kind or a.kind == kind) and (not q or q.lower() in f"{a.title} {a.summary or ''}".lower()))
+                and (not kind or a.kind == kind) and (not source or a.source_name == source)
+                and (not q or q.lower() in f"{a.title} {a.summary or ''}".lower()))
     shown = [a for a in arts if ok(a)]
     # news tone per currency over the last 3 days: hawkish +1, dovish -1
     recent = [a for a in arts if _aware(a.published_at) >= utcnow() - timedelta(days=3)]
@@ -306,7 +308,12 @@ def listing(db: Session, currency: str | None = None, topic: str | None = None, 
     risk_items = [_brief(a) | {"points": 1 if a.risk == "risk_on" else -1} for a in recent if a.risk]
     src = db.scalar(select(Source).where(Source.key == "news"))
     cfg = (src.config or {}) if src else {}
-    return {"articles": [row(a) for a in shown[:limit]], "total": len(shown), "tone": tone_by,
+    counts: dict[tuple[str, str], int] = {}
+    for a in arts:  # every site in the period, so you can pick one (central banks first, then by number of articles)
+        counts[(a.source_name, a.kind)] = counts.get((a.source_name, a.kind), 0) + 1
+    sources = [{"name": n, "kind": k, "count": c}
+               for (n, k), c in sorted(counts.items(), key=lambda x: (x[0][1] != "central_bank", -x[1], x[0][0]))]
+    return {"articles": [row(a) for a in shown[:limit]], "total": len(shown), "tone": tone_by, "sources": sources,
             "risk": {"risk_on": rn, "risk_off": ro, "items": risk_items, "lean": "Risk-off" if ro - rn >= 3 else "Risk-on" if rn - ro >= 3 else "Mixed"},
             "topics": list(TOPICS), "feeds": cfg.get("feeds", {}), "last_run": cfg.get("last_run")}
 

@@ -76,3 +76,17 @@ def test_tone_breakdown(db):
     assert pts == {"Fed signals more hikes": 1, "GBP/USD rallies on strong UK wages": 0, "Powell speaks today": 0}
     assert usd["net"] == sum(pts.values())
     assert "pair code" in next(b["why"] for b in usd["breakdown"] if b["points"] == 0 and "GBP" in b["title"])
+
+
+def test_filter_by_site(client, db):
+    from app.db import utcnow
+    from app.models import NewsArticle
+
+    for i, (src, kind) in enumerate([("FXStreet", "news"), ("FXStreet", "news"), ("ING THINK", "news"), ("Bank of England", "central_bank")]):
+        db.add(NewsArticle(uid=f"s{i}", title=f"Headline {i}", source_name=src, feed="x", kind=kind, published_at=utcnow(),
+                           currencies=[], topics=[], tone="neutral"))
+    db.commit()
+    d = client.get("/api/news").json()
+    assert [s["name"] for s in d["sources"]] == ["Bank of England", "FXStreet", "ING THINK"]
+    assert d["sources"][1]["count"] == 2
+    assert client.get("/api/news?source=ING THINK").json()["total"] == 1
