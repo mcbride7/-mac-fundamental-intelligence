@@ -72,3 +72,49 @@ def test_cross_pairs_priced_from_usd_legs(db):
     db.commit()
     assert round(tr._price_near(db, "EURGBP", T0).price, 4) == 0.88
     assert round(tr._price_near(db, "EURJPY", T0).price, 2) == 165.0
+
+
+def test_trade_plan_levels_type_and_outcome(client, db):
+    from app.services import track_record as tr
+
+    # 14 days of ~0.5% daily moves before the call
+    px = 1.1000
+    for i in range(15, 0, -1):
+        px *= 1.005 if i % 2 else 0.995
+        _price(db, "EURUSD", T0 - timedelta(days=i), round(px, 5))
+    _price(db, "EURUSD", T0 - timedelta(minutes=5), 1.1000)
+    db.commit()
+    rec = tr.record(db, "EURUSD", "A", "LONG", 62.0, now=T0)
+    db.commit()
+    plan = tr.plan_for(db, rec)
+    assert plan.trade_type == "swing" and 0.5 < plan.atr_pct < 0.7
+    assert plan.stop_loss < 1.1 < plan.take_profit
+    assert abs((plan.take_profit - 1.1) / (1.1 - plan.stop_loss) - 2) < 0.01  # 1 : 2
+    # price runs up to the target three days later
+    _price(db, "EURUSD", T0 + timedelta(days=1), 1.1010)
+    _price(db, "EURUSD", T0 + timedelta(days=3), plan.take_profit + 0.0005)
+    db.commit()
+    row = next(r for r in client.get("/api/track-record").json()["recent"] if r["id"] == rec.id)
+    assert row["trade_type"] == "swing" and row["outcome"] == "target" and row["result_r"] == 2.0 and row["risk_reward"] == 2.0
+    a = next(g for g in client.get("/api/track-record").json()["by_grade"] if g["grade"] == "A")
+    assert a["targets_hit"] == 1 and a["avg_r"] == 2.0
+    # switch to a day trade by hand: tighter levels, re-checked
+    r = client.patch(f"/api/track-record/{rec.id}", json={"trade_type": "day"}).json()
+    assert r["trade_type"] == "day" and r["sl_pct"] < row["sl_pct"]
+    # own levels; a stop on the wrong side is refused
+    assert client.patch(f"/api/track-record/{rec.id}", json={"stop_loss": 1.2}).status_code == 422
+    db.expire_all()
+    assert tr.plan_for(db, rec).stop_loss < 1.1  # the refused edit was not kept
+    r = client.patch(f"/api/track-record/{rec.id}", json={"trade_type": "swing", "stop_loss": 1.09, "take_profit": 1.13}).json()
+    assert r["manual"] and r["stop_loss"] == 1.09 and r["take_profit"] == 1.13 and r["outcome"] == "expired"  # 20 days passed without either
+
+
+def test_grade_c_is_a_day_trade(db):
+    from app.services import track_record as tr
+
+    _price(db, "GBPUSD", T0, 1.30)
+    db.commit()
+    rec = tr.record(db, "GBPUSD", "C", "SHORT", -31.0, now=T0)
+    db.commit()
+    plan = tr.plan_for(db, rec)
+    assert plan.trade_type == "day" and plan.stop_loss is None  # no history to size levels from: left blank

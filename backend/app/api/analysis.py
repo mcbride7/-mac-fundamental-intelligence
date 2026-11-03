@@ -46,6 +46,22 @@ def track_record_summary(db: Session = Depends(get_db)):
     return track_record.summary(db)
 
 
+@router.patch("/track-record/{signal_id}")
+def track_record_edit(signal_id: int, body: dict, db: Session = Depends(get_db)):
+    """Change a call's trade type (swing / day), stop loss or take profit."""
+    from app.services import track_record
+
+    def _f(k):
+        v = body.get(k)
+        return None if v in (None, "") else float(v)
+    try:
+        return track_record.edit_plan(db, signal_id, body.get("trade_type") or None, _f("stop_loss"), _f("take_profit"))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except (ValueError, TypeError) as e:
+        raise HTTPException(422, str(e))
+
+
 @router.get("/trade-setups")
 def setups(db: Session = Depends(get_db)):
     return trading_engine.top_setups(db, 50)

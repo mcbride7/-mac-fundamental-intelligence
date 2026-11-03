@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, String
+from sqlalchemy import Boolean, DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base, utcnow
@@ -27,3 +27,21 @@ class SignalRecord(Base):
     ret_20d: Mapped[float | None] = mapped_column(Float)
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     note: Mapped[str | None] = mapped_column(String(200))
+
+
+class SignalPlan(Base):
+    """Stop loss, take profit and trade type for one call (own table so existing databases pick it up).
+    Levels are set automatically from recent volatility and can be overwritten by hand."""
+
+    __tablename__ = "signal_plans"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    signal_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    trade_type: Mapped[str] = mapped_column(String(8), default="swing")  # swing | day
+    type_reason: Mapped[str | None] = mapped_column(String(200))
+    stop_loss: Mapped[float | None] = mapped_column(Float)
+    take_profit: Mapped[float | None] = mapped_column(Float)
+    atr_pct: Mapped[float | None] = mapped_column(Float)  # typical daily move used to size the levels, in %
+    manual: Mapped[bool] = mapped_column(Boolean, default=False)
+    outcome: Mapped[str | None] = mapped_column(String(16))  # target | stop | expired
+    outcome_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_r: Mapped[float | None] = mapped_column(Float)  # +2 = made twice the risk, -1 = lost the risk
