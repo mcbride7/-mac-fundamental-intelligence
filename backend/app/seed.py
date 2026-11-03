@@ -62,6 +62,8 @@ SOURCES = [
      "US", None, 30, {}),
     ("pressers", "Press conferences: Fed and ECB transcripts, and BoE, BoJ, RBA, BoC, SNB, RBNZ from their press feeds", "1", "official", None, None, None,
      1440, {}),
+    ("intermarket", "Intermarket extras: US real yield, Fed liquidity (FRED), copper and DAX funds (Twelve Data)", "1", "api",
+     "https://fred.stlouisfed.org", "US", None, 1440, {}),
     ("news", "News headlines (central bank RSS, FXStreet, Investing.com, ING THINK, Finnhub)", "3", "rss", None, None, None,
      60, {}),
     # fetched hourly (free plan limits), so it counts as late after 1 hour and stale after 2

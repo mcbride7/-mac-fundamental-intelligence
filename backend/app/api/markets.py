@@ -64,6 +64,14 @@ def intermarket(window: int = 60, db: Session = Depends(get_db)):
     return im.board(db, window if window in (20, 60, 120) else 60)
 
 
+@router.post("/intermarket/ai-note")
+def intermarket_ai_note(db: Session = Depends(get_db)):
+    """AI desk note built only from the Intermarket numbers (falls back to the plain summary without an AI key)."""
+    from app.services import intermarket as im
+
+    return im.ai_note(db)
+
+
 @router.get("/markets/equities")
 def equities_board(db: Session = Depends(get_db)):
     """Equity quotes from Finnhub: US indices (via ETFs), sectors, countries, mega caps and your own tickers."""
