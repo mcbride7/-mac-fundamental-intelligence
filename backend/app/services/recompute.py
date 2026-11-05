@@ -191,6 +191,15 @@ def run_job(db: Session, job_id: int) -> RecomputeJob:
     return job
 
 
+def data_stamp(db: Session) -> str:
+    """Changes whenever an analysis update finishes (in any process: the API or the worker). Page caches include
+    it in their key, so a new statement, release or price shows on every tab straight away instead of after 10 minutes."""
+    from sqlalchemy import func, select
+
+    ts = db.scalar(select(func.max(RecomputeJob.finished_at)))
+    return ts.isoformat() if ts else "0"
+
+
 def trigger(db: Session, entity: str, entity_id: int | None = None, **ctx_extra) -> RecomputeJob:
     """Create a job and run it inline, or hand it to Celery."""
     from app.config import settings

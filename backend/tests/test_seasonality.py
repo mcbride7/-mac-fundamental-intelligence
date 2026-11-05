@@ -70,7 +70,7 @@ def test_weekly_stats_and_price_chart(client, db):
     a = client.get("/api/seasonality/XAUUSD?years=10").json()
     assert len(a["weeks"]) == 52 and a["this_week"]["week"] == a["week_now"]
     pc = a["price_chart"]
-    assert pc and len(pc["seasonal"]) == len(pc["dates"]) and pc["actual"][-1] is not None
+    assert pc and len(pc["seasonal"]) == len(pc["dates"]) and any(v is not None for v in pc["actual"])  # the year so far (date-independent)
     assert pc["projection"][pc["today_index"]] == pc["latest"] and "seasonal path" in pc["note"]
     w = client.get("/api/seasonality?years=10&view=weekly").json()
     gold = next(x for x in w["assets"] if x["key"] == "XAUUSD")

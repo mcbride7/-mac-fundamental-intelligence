@@ -176,7 +176,10 @@ def bias_of(score: int) -> str:
 
 def compute(db: Session, today: date | None = None) -> dict:
     today = today or date.today()
-    hit = _CACHE.get(today)
+    from app.services.recompute import data_stamp
+
+    ckey = (today, data_stamp(db))
+    hit = _CACHE.get(ckey)
     if hit and _time.time() - hit[0] < TTL:
         return hit[1]
     snaps = fnd.build_all(db)
@@ -288,7 +291,7 @@ def compute(db: Session, today: date | None = None) -> dict:
            "categories": ["FX majors", "FX crosses", "FX emerging", "Metals", "Indices", "Bonds"],
            "rows": rows}
     _CACHE.clear()
-    _CACHE[today] = (_time.time(), out)
+    _CACHE[ckey] = (_time.time(), out)
     return out
 
 

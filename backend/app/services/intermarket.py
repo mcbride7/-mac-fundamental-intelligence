@@ -659,7 +659,9 @@ def desk_note(res: dict) -> str:
 
 
 def board(db: Session, window: int = 60) -> dict:
-    key = f"b{window}"
+    from app.services.recompute import data_stamp
+
+    key = f"b{window}:{data_stamp(db)}"
     hit = _CACHE.get(key)
     if hit and _time.time() - hit[0] < TTL:
         return hit[1]
@@ -671,6 +673,8 @@ def board(db: Session, window: int = 60) -> dict:
            "divergences": divergences(ld),
            "out_of_line": sorted([{k: r[k] for k in ("pair", "name", "driver_name", "z", "note", "price", "fair")}
                                   for r in rels if r.get("note")], key=lambda r: -abs(r["z"]))}
+    for k in [k for k in _CACHE if k.startswith(f"b{window}:") and k != key]:
+        _CACHE.pop(k, None)
     _CACHE[key] = (_time.time(), res)  # cached before the bias step, which reads Top setups (which reads us)
     try:
         res["bias"] = bias(db, ld, conf, rels)

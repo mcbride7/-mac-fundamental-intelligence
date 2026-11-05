@@ -87,7 +87,9 @@ def _cot_ccy(db: Session, code: str) -> tuple[float | None, dict]:
 
 def compute(db: Session, today: date | None = None) -> dict:
     today = today or date.today()
-    key = today.isoformat()
+    from app.services.recompute import data_stamp
+
+    key = f"{today.isoformat()}:{data_stamp(db)}"
     hit = _CACHE.get(key)
     if hit and _time.time() - hit[0] < TTL:
         return hit[1]
