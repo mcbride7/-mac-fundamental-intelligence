@@ -122,7 +122,7 @@ export default function DataHealth() {
                 <thead><tr><th>Source</th><th>Tier</th><th>Status</th><th>Last success</th><th>Expected next</th><th>Retries</th><th>Last error</th><th /></tr></thead>
                 <tbody>{h.sources.map((s: any) => (
                   <tr key={s.key}>
-                    <td>{s.name}</td><td>{s.tier}</td><td className={SRC_CLS[s.status] || ""}>{s.status}</td>
+                    <td>{s.name}{s.via && <span className="block text-xs text-muted">{s.via}</span>}</td><td>{s.tier}</td><td className={SRC_CLS[s.status] || ""}>{s.status}</td>
                     <td>{dateTime(s.last_success_at)}</td><td>{dateTime(s.expected_next_at)}</td><td>{s.retries}</td>
                     <td className="max-w-xs truncate text-muted" title={s.last_error || ""}>{s.last_error || ""}</td>
                     <td className="whitespace-nowrap">

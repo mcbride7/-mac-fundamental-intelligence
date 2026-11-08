@@ -5,6 +5,9 @@ All free, no key:
 - ONS (UK): CPI, core CPI, unemployment rate, GDP q/q
 - Statistics Canada: CPI y/y (from the index), unemployment rate, employment change
 - ABS (Australia): unemployment rate
+- Statistics South Africa: headline CPI y/y (published through the Reserve Bank's web API, which re-issues Stats SA's
+  figure), GDP q/q and y/y (Stats SA's figures as carried by the OECD on FRED; arrive 1-2 months late, so they fill gaps)
+- South African Reserve Bank: repo rate (web API, no key), plus the R209 2036 government bond yield as ZA 10Y
 
 Values go through the same `upsert_official_release` as FRED, so a value you typed by hand is
 checked against them (match -> VERIFIED, mismatch -> CONFLICT) and official revisions are kept
@@ -420,7 +423,118 @@ ABS = Agency("abs", [
     Series("AU_UNEMPLOYMENT", lambda: [(p, round(v, 1)) for p, v in _abs("LF,1.0.0", "M13.3.1599.20.AUS.M")]),
 ])
 
-AGENCIES = {a.key: a for a in (EUROSTAT, ONS, STATCAN, ABS)}
+# --------------------------------------------------------------------------- South Africa (SARB web API, FRED/OECD)
+
+SARB_API = "https://custom.resbank.co.za/SarbWebApi/WebIndicators"
+
+
+def _sarb_json(path: str):
+    r = _get(f"{SARB_API}/{path}")
+    try:
+        return r.json()
+    except ValueError as exc:
+        raise SourceUnavailable(f"SARB {path.split('/')[0]}: unreadable reply {_snippet(r)}") from exc
+
+
+def parse_sarb_series(rows) -> list[tuple[date, float]]:
+    """SARB timeseries rows: [{"Period": "2026-05-31T00:00:00", "Value": 4.5, ...}] (newest first or last)."""
+    out = []
+    for x in rows or []:
+        if not isinstance(x, dict):
+            continue
+        d, v = x.get("Period") or x.get("Date"), x.get("Value")
+        if d is None or v is None:
+            continue
+        try:
+            out.append((date.fromisoformat(str(d)[:10]), float(v)))
+        except ValueError:
+            continue
+    return sorted(out)
+
+
+def sarb_home_rates() -> dict[str, tuple[date, float]]:
+    """Latest values from the Reserve Bank's home-page rates feed, by timeseries code."""
+    out = {}
+    for x in _sarb_json("HomePageRates") or []:
+        code = x.get("TimeseriesCode")
+        pts = parse_sarb_series([x])
+        if code and pts:
+            out[code] = pts[-1]
+    return out
+
+
+def sarb_series(code: str, years: int = 3) -> list[tuple[date, float]]:
+    today = date.today()
+    start = date(today.year - years, 1, 1)
+    pts = parse_sarb_series(_sarb_json(f"Shared/GetTimeseriesObservations/{code}/{start.isoformat()}/{today.isoformat()}"))
+    if not pts:  # fall back to the latest value on the home-page feed
+        hit = sarb_home_rates().get(code)
+        pts = [hit] if hit else []
+    if not pts:
+        raise SourceUnavailable(f"SARB {code}: no values in reply")
+    return pts
+
+
+def _monthly(pts: list[tuple[date, float]], dec: int = 2) -> list[tuple[str, float]]:
+    last: dict[str, float] = {}
+    for d, v in pts:
+        last[f"{d.year}-{d.month:02d}"] = round(v, dec)
+    return sorted(last.items())
+
+
+def za_cpi_yoy() -> list[tuple[str, float]]:
+    pts = sarb_series("CPI1000F")
+    if pts[-1][1] > 30:  # an index level rather than the inflation rate: compute y/y
+        m = dict(_monthly(pts, 4))
+        keys = sorted(m)
+        pts2 = []
+        for k in keys:
+            y, mo = int(k[:4]), int(k[5:])
+            prev = m.get(f"{y - 1}-{mo:02d}")
+            if prev:
+                pts2.append((k, round((m[k] / prev - 1) * 100, 1)))
+        return pts2
+    return [(k, round(v, 1)) for k, v in _monthly(pts, 1)]
+
+
+def za_repo_rate() -> list[tuple[str, float]]:
+    """Repo rate by month (the rate in force at the end of each month)."""
+    try:
+        pts = sarb_series("MMRD002A")
+    except SourceUnavailable:
+        pts = sarb_series("MRDREPOR", years=10)  # dates of change only: carry each rate forward
+    out, today = [], date.today()
+    pts = sorted(pts)
+    y, m = pts[0][0].year, pts[0][0].month
+    i, cur = 0, None
+    while (y, m) <= (today.year, today.month):
+        while i < len(pts) and (pts[i][0].year, pts[i][0].month) <= (y, m):
+            cur = pts[i][1]
+            i += 1
+        if cur is not None:
+            out.append((f"{y}-{m:02d}", round(cur, 2)))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def _fred_quarterly(series: str) -> list[tuple[str, float]]:
+    from app.ingestion.fred import fetch_observations
+
+    return [(f"{d.year}Q{(d.month - 1) // 3 + 1}", round(v, 2)) for d, v in fetch_observations(series, "2018-01-01")]
+
+
+STATSSA = Agency("statssa", [
+    Series("ZA_CPI_YOY", za_cpi_yoy, "Stats SA headline CPI as published on the Reserve Bank's web API"),
+    # OECD copies of Stats SA's GDP (real, seasonally adjusted): growth on the previous quarter / same quarter a year ago
+    Series("ZA_GDP_QOQ", lambda: _fred_quarterly("NAEXKP01ZAQ657S"), "via FRED (OECD), 1-2 months late"),
+    Series("ZA_GDP_YOY", lambda: _fred_quarterly("NAEXKP01ZAQ659S"), "via FRED (OECD), 1-2 months late"),
+])
+
+SARB = Agency("sarb", [
+    Series("ZA_SARB_RATE", za_repo_rate, "Reserve Bank web API"),
+])
+
+AGENCIES = {a.key: a for a in (EUROSTAT, ONS, STATCAN, ABS, STATSSA, SARB)}
 OFFICIAL_BY_CODE = {s.code: a.key for a in AGENCIES.values() for s in a.series}
 
 
@@ -448,11 +562,34 @@ def run_agency(db: Session, src: Source, agency: Agency) -> int:
     return n
 
 
+def sarb_yields(db: Session) -> int:
+    """R209 (6.25% 2036) closing yield from the Reserve Bank, stored as South Africa's 10-year yield."""
+    from datetime import datetime, time, timezone
+
+    from app.models import BondYield
+
+    n = 0
+    for d, v in sarb_series("MMRD709A", years=2):
+        ts = datetime.combine(d, time(21, 0), tzinfo=timezone.utc)
+        if db.get(BondYield, ("ZA", "10Y", ts)) is None:
+            db.add(BondYield(country="ZA", tenor="10Y", ts=ts, yield_pct=v, source="SARB"))
+            n += 1
+    db.commit()
+    return n
+
+
 def runner(key: str):
     agency = AGENCIES[key]
 
-    def run(db: Session, src: Source) -> int:
-        return run_agency(db, src, agency)
+    def run(db: Session, src: Source):
+        n = run_agency(db, src, agency)
+        if key == "sarb":
+            try:
+                n += sarb_yields(db)
+            except Exception as exc:  # the repo rate still counts if the bond feed fails
+                db.rollback()
+                return n, f"bond yield: {exc}"[:300]
+        return n
 
     run.__name__ = f"run_{key}"
     return run

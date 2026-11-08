@@ -150,3 +150,23 @@ def test_abs_generic_xml_csv_and_json():
         {"id": "2026-08"}, {"id": "2026-09"}]}]}},
         "dataSets": [{"series": {"0:0:0:0:0": {"observations": {"0": [4.65], "1": [4.72]}}}}]}}
     assert off.parse_sdmx_json(js) == [("2026-08", 4.65), ("2026-09", 4.72)]
+
+
+def test_south_africa_sarb_parsing():
+    from datetime import date
+
+    from app.ingestion import official as o
+
+    rows = [{"Name": "CPI", "TimeseriesCode": "CPI1000F", "Date": "2026-05-31", "Value": 4.5},
+            {"Name": "SARB Policy Rate", "TimeseriesCode": "MMRD002A", "Date": "2026-07-01", "Value": 7.0}]
+    hist = [{"Period": "2025-11-21T00:00:00", "Value": 6.75}, {"Period": "2025-08-01T00:00:00", "Value": 7.0}]
+    orig = o._sarb_json
+    try:
+        o._sarb_json = lambda p: rows if p == "HomePageRates" else (hist if "MRDREPOR" in p else [] if "CPI1000F" in p else (_ for _ in ()).throw(o.SourceUnavailable("404")))
+        assert o.sarb_home_rates()["CPI1000F"] == (date(2026, 5, 31), 4.5)
+        assert o.za_cpi_yoy() == [("2026-05", 4.5)]
+        rr = dict(o.za_repo_rate())
+        assert rr["2025-09"] == 7.0 and rr["2025-11"] == 6.75
+    finally:
+        o._sarb_json = orig
+    assert {"statssa", "sarb"} <= set(o.AGENCIES)

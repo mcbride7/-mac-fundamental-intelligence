@@ -262,6 +262,15 @@ def data_health(db: Session) -> dict:
             "last_error": h.last_error, "needs_manual_input": status in ("FAILED", "STALE"),
             "runnable": src.key in JOBS,
         })
+    # agencies whose figures arrive through another feed: show that feed's health instead of "never run"
+    via = {"bls": "fred", "bea": "fred"}
+    by_key = {x["key"]: x for x in sources}
+    for k, parent in via.items():
+        if k in by_key and parent in by_key:
+            p = by_key[parent]
+            by_key[k].update({kk: p[kk] for kk in ("status", "last_success_at", "last_attempt_at", "expected_next_at",
+                                                     "retries", "last_error", "needs_manual_input")})
+            by_key[k]["via"] = f"Fetched through {p['name'].split(' (')[0]}: it republishes this agency's releases within minutes"
     counts = {s: db.scalar(select(func.count(EconomicRelease.id)).where(
         EconomicRelease.verification_status == s, EconomicRelease.is_current.is_(True))) or 0
         for s in (VerificationStatus.UNVERIFIED.value, VerificationStatus.USER_CONFIRMED.value)}

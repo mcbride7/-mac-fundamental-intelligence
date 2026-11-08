@@ -20,6 +20,8 @@ JOBS = {
     "ons": official.runner("ons"),
     "statcan": official.runner("statcan"),
     "abs": official.runner("abs"),
+    "statssa": official.runner("statssa"),
+    "sarb": official.runner("sarb"),
     "risk": risk_sentiment.run_risk,
     "cftc": cot.run_cftc,
     "seasonality": seasonality.run_seasonality,
