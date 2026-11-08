@@ -180,7 +180,7 @@ export default function NewsPage() {
               {data.total > data.articles.length ? `Showing ${data.articles.length} of ${data.total}. ` : ""}
               {data.last_run ? `Last fetched ${ago(data.last_run)}. ` : ""}
               {feeds.length > 0 && `Feeds working: ${feeds.length - failed.length} of ${feeds.length}`}
-              {failed.length > 0 && <> (not reachable: {failed.map(([, f]) => f.name).join(", ")})</>}.
+              {failed.length > 0 && <> (not reachable: {failed.map(([k, f], i) => <span key={k}>{i ? ", " : ""}<span title={f.error || ""} className="cursor-help underline decoration-dotted">{f.name}</span></span>)})</>}.
               Tags are worked out from keywords, so treat them as a quick guide. Headlines link to the publisher for the full article.
             </p>
           )}

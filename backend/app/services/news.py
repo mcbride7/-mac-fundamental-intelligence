@@ -41,9 +41,14 @@ RSS_FEEDS = [
      ["CAD"]),
     ("rbnz", "Reserve Bank of New Zealand", "https://www.rbnz.govt.nz/feeds/news", "central_bank", ["NZD"]),
     ("snb", "Swiss National Bank", "https://www.snb.ch/public/en/rss/pressrel", "central_bank", ["CHF"]),
-    ("fxstreet", "FXStreet", "https://www.fxstreet.com/rss/news", "news", []),
+    # news sites: several routes each, tried in order (the last is Google News' feed of that site's own headlines)
+    ("fxstreet", "FXStreet", ("https://www.fxstreet.com/rss/news", "https://www.fxstreet.com/rss",
+                              "https://news.google.com/rss/search?q=site:fxstreet.com+when:2d&hl=en-US&gl=US&ceid=US:en"),
+     "news", []),
     ("investing", "Investing.com", "https://www.investing.com/rss/news_1.rss", "news", []),
-    ("ing", "ING THINK", "https://think.ing.com/rss/", "news", []),  # ING's economics and FX research (free)
+    ("ing", "ING THINK", ("https://think.ing.com/rss/", "https://think.ing.com/rss/articles/",
+                          "https://news.google.com/rss/search?q=site:think.ing.com+when:7d&hl=en-US&gl=US&ceid=US:en"),
+     "news", []),  # ING's economics and FX research (free)
 ]
 
 CURRENCY_WORDS = {
@@ -180,8 +185,44 @@ def parse_rss(xml_bytes: bytes) -> list[dict]:
     return out
 
 
-def fetch_rss(url: str) -> list[dict]:
-    return parse_rss(http_get(url, retries=1).content)
+# Some news sites turn away requests that don't look like a browser or feed reader, so feeds are fetched as one.
+FEED_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/130.0 Safari/537.36 MacFundamentalIntelligence/1.0",
+    "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def _clean_google(items: list[dict], site: str) -> list[dict]:
+    """Google News titles end in " - Site name"; keep the publisher's own headline."""
+    for it in items:
+        t = it.get("title") or ""
+        if " - " in t:
+            it["title"] = t.rsplit(" - ", 1)[0].strip()
+    return items
+
+
+def fetch_rss(url) -> list[dict]:
+    """One URL, or several routes tried in order until one returns headlines."""
+    import requests
+
+    urls = [url] if isinstance(url, str) else list(url)
+    errors = []
+    for u in urls:
+        try:
+            r = requests.get(u, headers=FEED_HEADERS, timeout=30)
+            if r.status_code != 200:
+                errors.append(f"{u.split('/')[2]} {r.status_code}")
+                continue
+            items = parse_rss(r.content)
+        except Exception as exc:  # unreachable, or not a feed (e.g. a block page)
+            errors.append(f"{u.split('/')[2]} {exc.__class__.__name__}")
+            continue
+        if items:
+            return _clean_google(items, "") if "news.google.com" in u else items
+        errors.append(f"{u.split('/')[2]} returned no headlines")
+    raise SourceUnavailable("; ".join(errors))
 
 
 def fetch_finnhub() -> list[dict]:
