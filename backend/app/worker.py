@@ -29,6 +29,7 @@ celery_app.conf.beat_schedule = {
     "statcan-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=35, hour="*/6"),
                    "args": ["statcan"]},
     "statssa-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=50, hour="*/6"), "args": ["statssa"]},
+    "nbs-releases": {"task": "app.worker.run_source_task", "schedule": crontab(minute="35", hour="1,2,3,9"), "args": ["nbs"]},
     "sarb-daily": {"task": "app.worker.run_source_task", "schedule": crontab(minute=20, hour="7,16"), "args": ["sarb"]},
     "abs-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=45, hour="*/6"), "args": ["abs"]},
     # CFTC publishes COT on Fridays 15:30 US Eastern (19:30-20:30 UTC). Try late Friday, again Saturday

@@ -170,3 +170,17 @@ def test_south_africa_sarb_parsing():
     finally:
         o._sarb_json = orig
     assert {"statssa", "sarb"} <= set(o.AGENCIES)
+
+
+def test_china_nbs_press_release_wording():
+    from app.ingestion import official as o
+
+    assert o.parse_nbs_cpi("In September 2026, China's Consumer Price Index (CPI) increased by 0.9% year on year.") == (0.9, None)
+    assert o.parse_nbs_cpi("In August 2026, China's Consumer Price Index (CPI) decreased by 0.4 percent year on year. "
+                           "The CPI excluding food and energy increased by 0.9 percent year on year.") == (-0.4, 0.9)
+    assert o.parse_nbs_pmi("In October, the purchasing managers’ index (PMI) of China’s manufacturing industry was 49.3%, down. "
+                           "In October, the non-manufacturing business activity index was 49.7%") == (49.3, 49.7)
+    gdp = "for the first quarter 5.2 percent, for the second quarter 4.7 percent, and for the third quarter 4.5 percent."
+    assert o.parse_nbs_gdp(gdp, 3) == 4.5 and o.parse_nbs_gdp(gdp, 2) == 4.7
+    assert o._gdp_period("National Economy ... in the First Three Quarters", "https://x/PressRelease/202610/t20261019_1.html") == "2026Q3"
+    assert o._month_period("Consumer Price Index in September 2026") == "2026-09"

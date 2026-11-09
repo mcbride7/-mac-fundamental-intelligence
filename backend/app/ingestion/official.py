@@ -7,6 +7,8 @@ All free, no key:
 - ABS (Australia): unemployment rate
 - Statistics South Africa: headline CPI y/y (published through the Reserve Bank's web API, which re-issues Stats SA's
   figure), GDP q/q and y/y (Stats SA's figures as carried by the OECD on FRED; arrive 1-2 months late, so they fill gaps)
+- National Bureau of Statistics of China: CPI y/y, core CPI y/y, official manufacturing and non-manufacturing PMIs,
+  GDP y/y, read from the bureau's English press releases (no API exists, so the wording is parsed)
 - South African Reserve Bank: repo rate (web API, no key), plus the R209 2036 government bond yield as ZA 10Y
 
 Values go through the same `upsert_official_release` as FRED, so a value you typed by hand is
@@ -530,11 +532,152 @@ STATSSA = Agency("statssa", [
     Series("ZA_GDP_YOY", lambda: _fred_quarterly("NAEXKP01ZAQ659S"), "via FRED (OECD), 1-2 months late"),
 ])
 
+# --------------------------------------------------------------------------- China (NBS English press releases)
+
+NBS = "https://www.stats.gov.cn/english/PressRelease/"
+MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", "may", "june", "july", "august",
+                                       "september", "october", "november", "december"), 1)}
+_NBS_LIST: dict = {}
+
+
+def nbs_releases() -> list[tuple[str, str]]:
+    """(title, absolute url) of the latest English press releases (cached for the run, 10 minutes)."""
+    import re
+    import time as _t
+
+    if _NBS_LIST.get("at", 0) > _t.time() - 600:
+        return _NBS_LIST["rows"]
+    html = _get(NBS).text
+    rows, seen = [], set()
+    for href, title in re.findall(r'<a[^>]+href="([^"]*t\d{8}_\d+\.html)"[^>]*>(.*?)</a>', html, flags=re.S | re.I):
+        import html as _html
+
+        title = _html.unescape(re.sub(r"<[^>]+>|\s+", " ", title)).strip()
+        url = href if href.startswith("http") else NBS + href.lstrip("./").lstrip("/")
+        url = url.replace("PressRelease//", "PressRelease/")
+        if title and url not in seen:
+            seen.add(url)
+            rows.append((title, url))
+    if not rows:
+        raise SourceUnavailable(f"NBS: no press releases found on the list page {_snippet(_get(NBS))}")
+    _NBS_LIST.update(at=_t.time(), rows=rows)
+    return rows
+
+
+def _nbs_text(url: str) -> str:
+    import re
+
+    html = _get(url).text
+    import html as _html
+
+    return re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", html)))
+
+
+def _month_period(title: str) -> str | None:
+    import re
+
+    m = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})", title, re.I)
+    return f"{m.group(2)}-{MONTHS[m.group(1).lower()]:02d}" if m else None
+
+
+def parse_nbs_cpi(text: str) -> tuple[float | None, float | None]:
+    """Headline CPI y/y, and core CPI (excluding food and energy) y/y when the release states it."""
+    import re
+
+    sgn = lambda word: -1 if word and word.lower().startswith(("decreas", "declin", "fell", "down", "dropp")) else 1
+    m = re.search(r"Consumer Price Index \(CPI\)[^.]{0,80}?(increased|decreased|rose|fell|went up|went down|declined)"
+                  r"\s+(?:by\s+)?(-?\d+(?:\.\d+)?)\s*(?:%|percent)\s+year[- ]on[- ]year", text, re.I)
+    flat = re.search(r"Consumer Price Index \(CPI\)[^.]{0,80}?(?:was|remained)\s+(?:flat|unchanged)\s+year[- ]on[- ]year", text, re.I)
+    head = 0.0 if flat and not m else (None if not m else sgn(m.group(1)) * float(m.group(2)))
+    core = None
+    c = re.search(r"(?:excluding food and energy|core CPI)[^.]{0,120}?(increased|decreased|rose|fell|went up|went down|declined)"
+                  r"\s+(?:by\s+)?(-?\d+(?:\.\d+)?)\s*(?:%|percent)\s+year[- ]on[- ]year", text, re.I)
+    if c:
+        core = sgn(c.group(1)) * float(c.group(2))
+    return head, core
+
+
+def parse_nbs_pmi(text: str) -> tuple[float | None, float | None]:
+    import re
+
+    man = re.search(r"purchasing managers.{0,3} index \(PMI\) of China.{0,3}s manufacturing industry was\s+(\d+(?:\.\d+)?)", text, re.I)
+    non = re.search(r"non-manufacturing business activity index was\s+(\d+(?:\.\d+)?)", text, re.I)
+    return (float(man.group(1)) if man else None), (float(non.group(1)) if non else None)
+
+
+QUARTER_WORDS = (("first three quarters", 3), ("third quarter", 3), ("first half", 2), ("second quarter", 2),
+                 ("first quarter", 1), ("fourth quarter", 4))
+
+
+def parse_nbs_gdp(text: str, quarter: int) -> float | None:
+    """That quarter's GDP growth y/y ("... for the second quarter 4.7 percent, and for the third quarter 4.5 percent")."""
+    import re
+
+    word = ("first", "second", "third", "fourth")[quarter - 1]
+    m = re.search(rf"for the {word} quarter,?\s+(?:was\s+)?(-?\d+(?:\.\d+)?)\s*(?:%|percent)", text, re.I)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"(?:gross domestic product|GDP)[^.]{0,200}?(?:increased|grew|up)\s+(?:by\s+)?(-?\d+(?:\.\d+)?)\s*(?:%|percent)\s+"
+                  r"(?:year on year|over the previous year)", text, re.I)
+    return float(m.group(1)) if m else None
+
+
+def _gdp_period(title: str, url: str) -> str | None:
+    import re
+
+    t = title.lower()
+    y = re.search(r"/(\d{4})(\d{2})/t\d{8}", url)
+    if not y:
+        return None
+    year, month = int(y.group(1)), int(y.group(2))
+    for words, q in QUARTER_WORDS:
+        if words in t:
+            return f"{year}Q{q}"
+    if "national economy" in t and month in (1, 2):  # the January release covers the whole previous year
+        return f"{year - 1}Q4"
+    return None
+
+
+def _nbs_monthly(kind: str, pick: int) -> list[tuple[str, float]]:
+    out = []
+    want = "consumer price index" if kind == "cpi" else "purchasing managers"
+    for title, url in [r for r in nbs_releases() if want in r[0].lower()][:3]:
+        period = _month_period(title)
+        if not period:
+            continue
+        vals = (parse_nbs_cpi if kind == "cpi" else parse_nbs_pmi)(_nbs_text(url))
+        if vals[pick] is not None:
+            out.append((period, vals[pick]))
+    if not out and pick == 0:
+        raise SourceUnavailable(f"NBS: couldn't read the latest {kind.upper()} release (wording may have changed)")
+    return sorted(out)
+
+
+def nbs_gdp() -> list[tuple[str, float]]:
+    out = []
+    for title, url in [r for r in nbs_releases() if "national economy" in r[0].lower()][:2]:
+        period = _gdp_period(title, url)
+        v = parse_nbs_gdp(_nbs_text(url), int(period[-1])) if period else None
+        if v is not None:
+            out.append((period, v))
+    if not out:
+        raise SourceUnavailable("NBS: couldn't read the latest GDP release (wording may have changed)")
+    return sorted(out)
+
+
+CHINA = Agency("nbs", [
+    Series("CN_CPI_YOY", lambda: _nbs_monthly("cpi", 0), "NBS press release"),
+    Series("CN_CORE_CPI_YOY", lambda: _nbs_monthly("cpi", 1), "NBS press release (when stated in the text)"),
+    Series("CN_MANUF_PMI", lambda: _nbs_monthly("pmi", 0), "NBS press release"),
+    Series("CN_SERVICES_PMI", lambda: _nbs_monthly("pmi", 1), "NBS press release"),
+    Series("CN_GDP_YOY", nbs_gdp, "NBS press release"),
+])
+
 SARB = Agency("sarb", [
     Series("ZA_SARB_RATE", za_repo_rate, "Reserve Bank web API"),
 ])
 
-AGENCIES = {a.key: a for a in (EUROSTAT, ONS, STATCAN, ABS, STATSSA, SARB)}
+AGENCIES = {a.key: a for a in (EUROSTAT, ONS, STATCAN, ABS, STATSSA, SARB, CHINA)}
 OFFICIAL_BY_CODE = {s.code: a.key for a in AGENCIES.values() for s in a.series}
 
 
@@ -559,6 +702,7 @@ def run_agency(db: Session, src: Source, agency: Agency) -> int:
         log.warning("%s: %s", agency.key, "; ".join(errors))
         if not ok:
             raise SourceUnavailable("; ".join(errors)[:900])
+        return n, ("Partly worked: " + "; ".join(errors))[:300]  # shown on Data health, status stays OK
     return n
 
 
@@ -582,14 +726,15 @@ def runner(key: str):
     agency = AGENCIES[key]
 
     def run(db: Session, src: Source):
-        n = run_agency(db, src, agency)
+        res = run_agency(db, src, agency)
+        n, warn = res if isinstance(res, tuple) else (res, None)
         if key == "sarb":
             try:
                 n += sarb_yields(db)
             except Exception as exc:  # the repo rate still counts if the bond feed fails
                 db.rollback()
-                return n, f"bond yield: {exc}"[:300]
-        return n
+                warn = ((warn + "; ") if warn else "") + f"bond yield: {exc}"
+        return (n, warn[:300]) if warn else n
 
     run.__name__ = f"run_{key}"
     return run

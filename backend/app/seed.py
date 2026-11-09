@@ -44,6 +44,8 @@ SOURCES = [
     ("ons", "UK Office for National Statistics", "1", "official", "https://www.ons.gov.uk", "GB", None, 1440, {}),
     ("statssa", "Statistics South Africa: CPI (through the Reserve Bank's API), GDP (OECD copy on FRED, 1-2 months late)",
      "1", "official", "https://www.statssa.gov.za", "ZA", None, 1440, {}),
+    ("nbs", "National Bureau of Statistics of China: CPI, PMIs, GDP (read from its English press releases)", "1", "official",
+     "https://www.stats.gov.cn/english/PressRelease/", "CN", None, 1440, {}),
     ("sarb", "South African Reserve Bank web API: repo rate and the 10-year government bond yield (R209)", "1", "api",
      "https://custom.resbank.co.za/SarbWebApi", "ZA", "SARB", 1440, {}),
     ("statcan", "Statistics Canada", "1", "official", "https://www150.statcan.gc.ca", "CA", None, 1440, {}),
