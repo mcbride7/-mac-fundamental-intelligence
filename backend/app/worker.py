@@ -22,6 +22,9 @@ celery_app.conf.beat_schedule = {
     "ecb-rss-30m": {"task": "app.worker.run_source_task", "schedule": crontab(minute="*/30"), "args": ["ecb_rss"]},
     "boe-rss-30m": {"task": "app.worker.run_source_task", "schedule": crontab(minute="*/30"), "args": ["boe_rss"]},
     "prices-hourly": {"task": "app.worker.run_source_task", "schedule": crontab(minute=2), "args": ["twelvedata"]},
+    # FMP free plan = 250 requests a day; this uses about 8
+    "fmp-calendar": {"task": "app.worker.run_source_task", "schedule": crontab(minute=25, hour="0,3,6,9,12,15,18,21"),
+                     "args": ["fmp"]},
     "calendar-hourly": {"task": "app.worker.run_source_task", "schedule": crontab(minute=10), "args": ["finnhub"]},
     "eurostat-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=25, hour="*/6"),
                     "args": ["eurostat"]},

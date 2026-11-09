@@ -124,6 +124,93 @@ def run_finnhub(db: Session, src: Source) -> int:
     return n
 
 
+FMP_URLS = ("https://financialmodelingprep.com/stable/economic-calendar",
+            "https://financialmodelingprep.com/api/v3/economic_calendar")
+
+
+def _fmp_get(params: dict) -> list:
+    """FMP's calendar (current 'stable' address, then the older v3 one). Explains plan / key problems plainly."""
+    import requests
+
+    last = ""
+    for url in FMP_URLS:
+        try:
+            r = requests.get(url, params=params, timeout=30)
+        except requests.RequestException as exc:
+            last = f"{exc.__class__.__name__}"
+            continue
+        try:
+            body = r.json()
+        except ValueError:
+            body = None
+        msg = body.get("Error Message") or body.get("message") if isinstance(body, dict) else None
+        if r.status_code in (401,) or (msg and "invalid" in msg.lower() and "key" in msg.lower()):
+            raise SourceUnavailable("FMP rejected the API key: check FMP_API_KEY in Railway")
+        if r.status_code in (402, 403) or (msg and ("subscription" in msg.lower() or "premium" in msg.lower()
+                                                     or "restricted" in msg.lower())):
+            last = "FMP's free plan doesn't include the economic calendar (needs a paid FMP plan)"
+            continue
+        if r.status_code == 429 or (msg and "limit" in msg.lower()):
+            raise SourceUnavailable("FMP daily request limit reached (free plan: 250 a day); it will retry later")
+        if r.status_code >= 400 or not isinstance(body, list):
+            last = f"FMP returned {r.status_code}: {(msg or r.text[:120]).strip()}"
+            continue
+        return body
+    raise SourceUnavailable(last or "FMP calendar unreachable")
+
+
+def run_fmp(db: Session, src: Source) -> int:
+    """Third calendar source (after Forex Factory and Finnhub): fills forecasts, previous figures and actuals
+    that the others left empty; never overwrites them."""
+    from app.ingestion.fred import upsert_official_release
+
+    if not settings.fmp_api_key:
+        raise SourceUnavailable("FMP_API_KEY not set (free key from financialmodelingprep.com)")
+    today = date.today()
+    rows = _fmp_get({"from": (today - timedelta(days=7)).isoformat(), "to": (today + timedelta(days=21)).isoformat(),
+                     "apikey": settings.fmp_api_key})
+    refs = da.indicator_refs(db)
+    n = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        country = FINNHUB_COUNTRY.get((item.get("country") or "").upper())
+        if not country:
+            continue
+        name = item.get("event") or ""
+        code, conf, _ = map_indicator(name, country, None, refs)
+        if not code or conf < 70:
+            continue
+        ind = da.indicator_by_code(db, code)
+        try:
+            when = datetime.fromisoformat(str(item.get("date")).replace(" ", "T")[:19]).replace(tzinfo=timezone.utc)
+        except ValueError:
+            when = None
+        period, _ = detect_period(name)
+        if not period and when:
+            ref = (when.replace(day=1) - timedelta(days=1))
+            period = f"{ref.year}Q{(ref.month - 1) // 3 + 1}" if ind.frequency == "quarterly" \
+                else f"{ref.year}-{ref.month:02d}"
+        if not period:
+            continue
+        ev = da.event_for(db, ind.id, period)
+        if ev is None:
+            ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance)
+            db.add(ev)
+            db.flush()
+        if ev.scheduled_at is None and when:
+            ev.scheduled_at = when
+        if ev.consensus is None and item.get("estimate") is not None:
+            ev.consensus, ev.consensus_source = float(item["estimate"]), "fmp"
+        if ev.previous is None and item.get("previous") is not None:
+            ev.previous = float(item["previous"])
+        if item.get("actual") is not None:
+            n += upsert_official_release(db, src, ind, period, float(item["actual"]), ev.consensus, when)
+        n += 1
+    db.commit()
+    return n
+
+
 def latest_price(db: Session, symbol: str) -> MarketPrice | None:
     return db.scalar(select(MarketPrice).where(MarketPrice.symbol == symbol).order_by(MarketPrice.ts.desc()))
 

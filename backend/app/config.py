@@ -68,6 +68,7 @@ class Settings:
     # Data providers
     fred_api_key: str | None = field(default_factory=lambda: os.getenv("FRED_API_KEY") or None)
     finnhub_api_key: str | None = field(default_factory=lambda: os.getenv("FINNHUB_API_KEY") or None)
+    fmp_api_key: str | None = field(default_factory=lambda: os.getenv("FMP_API_KEY") or None)
     twelvedata_api_key: str | None = field(default_factory=lambda: os.getenv("TWELVEDATA_API_KEY") or None)
 
     # Phone alerts (Telegram). Create a bot with @BotFather, then message it once and get your chat id.

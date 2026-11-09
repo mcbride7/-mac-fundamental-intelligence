@@ -51,6 +51,8 @@ SOURCES = [
     ("statcan", "Statistics Canada", "1", "official", "https://www150.statcan.gc.ca", "CA", None, 1440, {}),
     ("abs", "Australian Bureau of Statistics", "1", "official", "https://www.abs.gov.au", "AU", None, 1440, {}),
     ("finnhub", "Finnhub economic calendar", "2", "api", "https://finnhub.io", None, None, 360, {}),
+    ("fmp", "FMP economic calendar (backup: fills gaps left by Forex Factory and Finnhub)", "2", "api",
+     "https://financialmodelingprep.com", None, None, 480, {}),
     ("forexfactory", "Forex Factory calendar (forecasts)", "2", "api", "https://www.forexfactory.com/calendar",
      None, None, 720, {}),
     ("risk", "Risk sentiment market series (FRED daily: VIX, credit spreads, S&P 500, FX)", "1", "api",

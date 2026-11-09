@@ -15,6 +15,7 @@ JOBS = {
     "boe_rss": central_banks.runner(central_banks.FEEDS[2]),
     "twelvedata": markets.run_prices,
     "finnhub": markets.run_finnhub,
+    "fmp": markets.run_fmp,
     "forexfactory": forexfactory.run_forexfactory,
     "eurostat": official.runner("eurostat"),
     "ons": official.runner("ons"),
