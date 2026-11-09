@@ -35,6 +35,10 @@ ASSETS: dict[str, tuple[str, str, str, str, str, str]] = {
     "USDMXN": ("USD/MXN", "Currencies", "fred", "DEXMXUS", "pct", ""),
     "USDCNY": ("USD/CNY", "Currencies", "fred", "DEXCHUS", "pct", ""),
     "USD": ("US dollar (broad index)", "Currencies", "fred", "DTWEXBGS", "pct", "Fed broad dollar index, from 2006"),
+    # crosses: worked out each day from the two US-dollar rates above (e.g. EUR/JPY = EUR/USD x USD/JPY)
+    **{a + b: (f"{a}/{b}", f"{a} crosses", "cross", a + b, "pct", f"calculated each day from the {a} and {b} US-dollar rates (FRED)")
+       for a, bs in (("EUR", ("GBP", "JPY", "CHF", "AUD", "NZD", "CAD")), ("GBP", ("JPY", "CHF", "AUD", "NZD", "CAD")))
+       for b in bs},
     "XAUUSD": ("Gold", "Metals", "twelvedata", "XAU/USD", "pct", ""),
     "XAGUSD": ("Silver", "Metals", "twelvedata", "XAG/USD", "pct", ""),
     "COPPER": ("Copper", "Metals", "fred", "PCOPPUSDM", "pct", "monthly prices (IMF)"),
@@ -61,7 +65,7 @@ ASSETS: dict[str, tuple[str, str, str, str, str, str]] = {
     "WHEAT": ("Wheat", "Agriculture", "fred", "PWHEAMTUSDM", "pct", "monthly prices (IMF)"),
     "SOYBEANS": ("Soybeans", "Agriculture", "fred", "PSOYBUSDM", "pct", "monthly prices (IMF)"),
 }
-GROUPS = ["Currencies", "Metals", "Energy", "Equities", "Rates", "Crypto", "Volatility", "Agriculture"]
+GROUPS = ["Currencies", "EUR crosses", "GBP crosses", "Metals", "Energy", "Equities", "Rates", "Crypto", "Volatility", "Agriculture"]
 LOOKBACKS = (5, 10, 15, 20)
 
 
@@ -89,6 +93,21 @@ def _store(db: Session, key: str, obs: list[tuple[date, float]]) -> int:
     return len(new)
 
 
+# value of one unit of each currency in US dollars: (stored pair, divide instead of multiply)
+USD_LEG = {"EUR": ("EURUSD", False), "GBP": ("GBPUSD", False), "AUD": ("AUDUSD", False), "NZD": ("NZDUSD", False),
+           "JPY": ("USDJPY", True), "CHF": ("USDCHF", True), "CAD": ("USDCAD", True)}
+
+
+def cross_series(db: Session, pair: str) -> list[tuple[date, float]]:
+    """A/B on every day both US-dollar rates exist."""
+    def usd(ccy: str) -> dict[date, float]:
+        key, inv = USD_LEG[ccy]
+        return {d: (1 / v if inv else v) for d, v in _obs(db, key) if v}
+    a, b = usd(pair[:3]), usd(pair[3:])
+    dp = 2 if pair.endswith("JPY") else 5
+    return [(d, round(a[d] / b[d], dp)) for d in sorted(a.keys() & b.keys())]
+
+
 def collect(db: Session) -> tuple[int, list[str]]:
     from app.ingestion.fred import fetch_observations
 
@@ -97,7 +116,11 @@ def collect(db: Session) -> tuple[int, list[str]]:
         latest = db.scalar(select(IndicatorObservation.obs_date).where(IndicatorObservation.series == PREFIX + key)
                            .order_by(IndicatorObservation.obs_date.desc()))
         try:
-            if src == "fred":
+            if src == "cross":
+                obs = cross_series(db, series)
+                if not obs:
+                    raise SourceUnavailable(f"needs {series[:3]}/USD and {series[3:]}/USD history first")
+            elif src == "fred":
                 start = (latest.replace(day=1).isoformat() if latest else START)
                 obs = fetch_observations(series, start)
             else:
