@@ -223,18 +223,34 @@ def regime(db: Session = Depends(get_db)):
     return {"current": row(cur), "history": hist}
 
 
+_RISK_CACHE: dict = {}
+
+
 @router.get("/macro/risk")
-def risk_sentiment(horizon: str = "daily", days: int = 120, db: Session = Depends(get_db)):
+def risk_sentiment(horizon: str = "daily", days: int = 120, summary: bool = False, db: Session = Depends(get_db)):
     """Risk-on / risk-off for one time frame (daily, weekly or monthly): score, signals, a plain-English note,
-    the bullish / bearish lists with their % changes over that period, price boxes, and history."""
+    the bullish / bearish lists with their % changes over that period, price boxes, and history.
+    summary=true returns only the label and score (used by the time-frame tabs)."""
+    import time as _time
+
     from app.analytics.risk import FX_IMPLICATION, HORIZONS, RISK_OFF, RISK_ON, WEIGHTS, daily_evaluation, explain
     from app.services import heatmap as hm
     from app.services.daily_moves import LOOKBACK, daily_moves
-    from app.services.risk_sentiment import reading
+    from app.services.recompute import data_stamp
+    from app.services.risk_sentiment import data_key, reading
 
     if horizon not in HORIZONS:
         raise HTTPException(422, "horizon must be daily, weekly or monthly")
-    r = reading(db, horizon, min(max(days, 10), 365))
+    if summary:
+        r = reading(db, horizon, 1)
+        return {"horizon": horizon, "current": None if r["score"] is None else
+                {"label": r["label"], "score": r["score"], "data_date": r["data_date"]}}
+    days = min(max(days, 10), 365)
+    key = (horizon, days, data_stamp(db), data_key(db), id(db.get_bind()))
+    hit = _RISK_CACHE.get(key)
+    if hit and _time.time() - hit[0] < 300:  # 5 minutes, or until new data arrives
+        return hit[1]
+    r = reading(db, horizon, days)
     if r["score"] is None:
         return {"horizon": horizon, "current": None, "history": [], "tiles": _risk_tiles(db, LOOKBACK[horizon]),
                 "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF}, "weights": WEIGHTS,
@@ -246,10 +262,14 @@ def risk_sentiment(horizon: str = "daily", days: int = 120, db: Session = Depend
     history = r.pop("history")
     current = r | {"implication": FX_IMPLICATION.get(r["label"], ""),
                    "why": explain(r["label"], r["score"], r["components"])}
-    return {"horizon": horizon, "current": current, "history": history,
-            "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF}, "weights": WEIGHTS,
-            "tiles": _risk_tiles(db, LOOKBACK[horizon]),
-            "evaluation": daily_evaluation(r["label"], scores) | {"moves": daily_moves(db, LOOKBACK[horizon])}}
+    out = {"horizon": horizon, "current": current, "history": history,
+           "thresholds": {"risk_on": RISK_ON, "risk_off": RISK_OFF}, "weights": WEIGHTS,
+           "tiles": _risk_tiles(db, LOOKBACK[horizon]),
+           "evaluation": daily_evaluation(r["label"], scores) | {"moves": daily_moves(db, LOOKBACK[horizon])}}
+    if len(_RISK_CACHE) > 20:
+        _RISK_CACHE.clear()
+    _RISK_CACHE[key] = (_time.time(), out)
+    return out
 
 
 TILES = [("BTCUSD", "BTC/USD"), ("EURUSD", "EUR/USD"), ("SPX", "SPX500"), ("XAUUSD", "GOLD"), ("USDJPY", "USD/JPY")]

@@ -130,20 +130,50 @@ def load_dated(db: Session) -> dict[str, list[tuple]]:
     return out
 
 
+def data_key(db: Session) -> tuple:
+    """Changes whenever a risk series gains or changes a value (cheap: one aggregate query)."""
+    from sqlalchemy import func
+
+    return tuple(db.execute(select(func.count(IndicatorObservation.id), func.max(IndicatorObservation.obs_date),
+                                   func.sum(IndicatorObservation.value))
+                            .where(IndicatorObservation.series.like(PREFIX + "%"))).one())
+
+
+KEEP = 400  # the score never looks back further than a year (252 days) plus a 60-day move
+_READING_CACHE: dict = {}
+
+
 def reading(db: Session, horizon: str = "daily", history_days: int = 120) -> dict:
     """The score for one time frame, worked out from the stored daily series, plus its history
     (one point per market day, each using only the data known on that day)."""
+    import bisect
+    import time as _time
+
     dated = load_dated(db)
-    series = {k: [v for _, v in rows] for k, rows in dated.items()}
+    # same data -> same answer: reuse it (the page asks for all three time frames at once)
+    stamp = (horizon, history_days, tuple((k, len(v), v[-1][0] if v else None, v[-1][1] if v else None)
+                                          for k, v in sorted(dated.items())))
+    hit = _READING_CACHE.get(stamp)
+    if hit and _time.time() - hit[0] < 1800:
+        return {**hit[1], "history": list(hit[1]["history"])}
+    series = {k: [v for _, v in rows[-KEEP:]] for k, rows in dated.items()}
     res = rk.evaluate(series, horizon)
     anchor = [d for d, _ in dated.get("vix") or dated.get("spx") or []]
     latest = anchor[-1].isoformat() if anchor else None
+    days_of = {k: [d for d, _ in rows] for k, rows in dated.items()}
     history = []
     for d in anchor[-history_days:]:
-        cut = {k: [v for dd, v in rows if dd <= d] for k, rows in dated.items()}
+        cut = {}
+        for k, rows in dated.items():
+            i = bisect.bisect_right(days_of[k], d)  # rows known on that day
+            cut[k] = [v for _, v in rows[max(0, i - KEEP):i]]
         r = rk.evaluate(cut, horizon)
         if r.score is not None:
             history.append({"date": d.isoformat(), "score": r.score, "label": r.label})
-    return {"horizon": horizon, "score": res.score, "label": res.label, "data_date": latest,
-            "coverage": res.coverage, "divergence": res.divergence, "notes": res.notes, "missing": res.missing,
-            "components": [c.__dict__ for c in res.components], "history": history}
+    out = {"horizon": horizon, "score": res.score, "label": res.label, "data_date": latest,
+           "coverage": res.coverage, "divergence": res.divergence, "notes": res.notes, "missing": res.missing,
+           "components": [c.__dict__ for c in res.components], "history": history}
+    if len(_READING_CACHE) > 30:
+        _READING_CACHE.clear()
+    _READING_CACHE[stamp] = (_time.time(), out)
+    return {**out, "history": list(history)}

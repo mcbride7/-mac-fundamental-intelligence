@@ -87,7 +87,7 @@ const FRAMES = [
 type Frame = (typeof FRAMES)[number];
 
 function FrameTab({ f, active, onClick }: { f: Frame; active: boolean; onClick: () => void }) {
-  const { data } = useApi<any>(`/api/macro/risk?horizon=${f.key}&days=10`);
+  const { data } = useApi<any>(`/api/macro/risk?horizon=${f.key}&summary=true`);
   const c = data?.current;
   const col = c?.label === "Risk-On" ? "var(--color-good)" : c?.label === "Risk-Off" ? "var(--color-bad)" : "var(--color-muted)";
   return (
