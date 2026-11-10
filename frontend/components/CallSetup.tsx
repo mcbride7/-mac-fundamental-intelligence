@@ -17,12 +17,20 @@ const OUTCOME: Record<string, string> = { target: "Target hit", stop: "Stopped o
 function SetupChart({ d }: { d: any }) {
   const c = d.call;
   const pts: [number, number][] = useMemo(() => d.prices.map(([ts, px]: [string, number]) => [t(ts), px]), [d.prices]);
+  const bars: [number, number, number, number, number][] = useMemo(() => (d.bars || []).map(([ts, o, h, l, cl]: any[]) => [t(ts), o, h, l, cl]), [d.bars]);
+  const barMs = (d.bar_hours || 24) * 3600e3;
   const [hover, setHover] = useState<number | null>(null);
+  const [mode, setModeRaw] = useState<"candles" | "line">(() => {
+    try { return (localStorage.getItem("callSetupChart") as any) === "line" ? "line" : "candles"; } catch { return "candles"; }
+  });
+  const setMode = (m: "candles" | "line") => { setModeRaw(m); setHover(null); try { localStorage.setItem("callSetupChart", m); } catch { /* ignore */ } };
+  const candles = mode === "candles" && bars.length >= 2;
   if (pts.length < 2) return <p className="rounded border border-line p-4 text-sm text-muted">Not enough stored prices around this call to draw it yet.</p>;
 
-  const x0 = Math.min(pts[0][0], t(c.opened_at)), x1 = Math.max(pts[pts.length - 1][0], t(c.opened_at));
+  const x0 = Math.min(pts[0][0], t(c.opened_at), candles ? bars[0][0] : Infinity);
+  const x1 = Math.max(pts[pts.length - 1][0], t(c.opened_at), candles ? bars[bars.length - 1][0] + barMs : -Infinity);
   const levels = [c.entry_price, c.stop_loss, c.take_profit].filter((v) => v != null) as number[];
-  const all = pts.map((p) => p[1]).concat(levels);
+  const all = (candles ? bars.flatMap((b) => [b[2], b[3]]) : pts.map((p) => p[1])).concat(levels);
   let lo = Math.min(...all), hi = Math.max(...all);
   const pad = (hi - lo || hi * 0.002) * 0.1; lo -= pad; hi += pad;
   const fx = (ms: number) => (ms - x0) / (x1 - x0 || 1);
@@ -36,7 +44,9 @@ function SetupChart({ d }: { d: any }) {
   const risk = c.stop_loss != null ? band(c.entry_price, c.stop_loss) : null;
   const reward = c.take_profit != null ? band(c.entry_price, c.take_profit) : null;
   const outPx = c.outcome === "target" ? c.take_profit : c.outcome === "stop" ? c.stop_loss : null;
-  const h = hover == null ? null : pts[hover];
+  const hb = candles && hover != null ? bars[hover] : null;
+  const h: [number, number] | null = hover == null ? null : hb ? [hb[0] + barMs / 2, hb[4]] : pts[hover];
+  const bw = Math.max(0.6, (barMs / (x1 - x0 || 1)) * 1000 * 0.68);
 
   const labels: { v: number; text: string; cls: string }[] = [
     c.take_profit != null && { v: c.take_profit, text: `TP ${num(c.take_profit, dec(c.take_profit))}`, cls: "border-up text-up" },
@@ -57,7 +67,8 @@ function SetupChart({ d }: { d: any }) {
           onMouseMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             const ms = x0 + ((e.clientX - r.left) / r.width) * (x1 - x0);
-            let best = 0; for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - ms) < Math.abs(pts[best][0] - ms)) best = i;
+            const xs = candles ? bars.map((b) => b[0] + barMs / 2) : pts.map((p) => p[0]);
+            let best = 0; for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - ms) < Math.abs(xs[best] - ms)) best = i;
             setHover(best);
           }}>
           {reward && <rect x={zx} width={zw} y={reward.y} height={reward.h} fill="var(--color-up)" opacity={0.14} />}
@@ -66,7 +77,14 @@ function SetupChart({ d }: { d: any }) {
             <line key={col as string} x1={0} x2={1000} y1={fy(v as number) * 100} y2={fy(v as number) * 100} stroke={col as string}
               strokeWidth={1.2} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" opacity={0.85} />))}
           <line x1={zx} x2={zx} y1={0} y2={100} stroke="var(--color-amber)" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
-          <path d={path} fill="none" stroke="var(--color-text)" strokeWidth={1.6} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+          {candles ? bars.map(([ms, o, hi2, lo2, cl], i) => {
+            const cx = fx(ms + barMs / 2) * 1000, up = cl >= o, col = up ? "var(--color-dove)" : "var(--color-hawk)";
+            const top = fy(Math.max(o, cl)) * 100, bot = fy(Math.min(o, cl)) * 100;
+            return (<g key={i} opacity={hover === i ? 1 : 0.92}>
+              <line x1={cx} x2={cx} y1={fy(hi2) * 100} y2={fy(lo2) * 100} stroke={col} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+              <rect x={cx - bw / 2} width={bw} y={top} height={Math.max(bot - top, 0.35)} fill={col} />
+            </g>);
+          }) : <path d={path} fill="none" stroke="var(--color-text)" strokeWidth={1.6} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
           {h && <line x1={fx(h[0]) * 1000} x2={fx(h[0]) * 1000} y1={0} y2={100} stroke="var(--color-muted)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
         </svg>
         {/* dots as HTML so they stay round */}
@@ -79,9 +97,10 @@ function SetupChart({ d }: { d: any }) {
         </span>
 
         {h && (
-          <span className="pointer-events-none absolute bottom-1 rounded border border-line bg-ink/90 px-2 py-0.5 text-xs tabular-nums"
+          <span className="pointer-events-none absolute bottom-1 rounded border border-line bg-ink/90 px-2 py-0.5 text-xs tabular-nums sm:whitespace-nowrap"
             style={fx(h[0]) > 0.6 ? { right: `${(1 - fx(h[0])) * 100 + 1}%` } : { left: `${fx(h[0]) * 100 + 1}%` }}>
-            {dateTime(new Date(h[0]).toISOString())} · {num(h[1], dec(h[1]))}{" "}
+            {hb ? <>{dateTime(new Date(hb[0]).toISOString())} · O {num(hb[1], dec(hb[1]))} H {num(hb[2], dec(hb[2]))} L {num(hb[3], dec(hb[3]))} C {num(hb[4], dec(hb[4]))}</>
+              : <>{dateTime(new Date(h[0]).toISOString())} · {num(h[1], dec(h[1]))}</>}{" "}
             <span className={(c.direction === "LONG" ? h[1] - c.entry_price : c.entry_price - h[1]) >= 0 ? "text-dove" : "text-hawk"}>
               ({signed(((c.direction === "LONG" ? 1 : -1) * (h[1] - c.entry_price) / c.entry_price) * 100, 2, "%")})
             </span>
@@ -95,7 +114,15 @@ function SetupChart({ d }: { d: any }) {
       <div className="relative mt-1 h-4 text-[11px] text-muted" style={{ marginRight: GUTTER }}>
         {ticks.map((ms) => <span key={ms} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${Math.min(95, Math.max(5, fx(ms) * 100))}%` }}>{shortDate(ms)}</span>)}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+        {bars.length >= 2 && (
+          <span role="group" aria-label="Chart type" className="inline-flex overflow-hidden rounded border border-line">
+            {(["candles", "line"] as const).map((m) => (
+              <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m}
+                className={`px-2 py-0.5 ${mode === m ? "bg-panel-2 text-text" : "hover:text-text"}`}>{m === "candles" ? `Candles (${d.bar_hours < 24 ? `${d.bar_hours}h` : "daily"})` : "Line"}</button>
+            ))}
+          </span>
+        )}
         <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-up/40" />Reward zone</span>
         <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-bear-soft/40" />Risk zone</span>
         <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-amber align-middle" />Call given</span>

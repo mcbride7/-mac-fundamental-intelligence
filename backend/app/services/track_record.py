@@ -294,7 +294,7 @@ def _plan_json(rec: SignalRecord, plan: SignalPlan | None) -> dict:
 MAX_PATH_POINTS = 600
 
 
-def _path(db: Session, asset: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+def _path(db: Session, asset: str, start: datetime, end: datetime, thin: bool = True) -> list[tuple[datetime, float]]:
     """Prices from `start` to `end` for the call's chart: every stored price (hourly where available); daily
     closes when fewer than 10 are stored (e.g. crosses built from their USD legs). Thinned to MAX_PATH_POINTS."""
     pts = [(_aware(ts), px) for ts, px in db.execute(
@@ -308,10 +308,41 @@ def _path(db: Session, asset: str, start: datetime, end: datetime) -> list[tuple
                 daily.append((ts, v))
         if len(daily) > len(pts):
             pts = daily
-    if len(pts) > MAX_PATH_POINTS:
+    if thin and len(pts) > MAX_PATH_POINTS:
         step = -(-len(pts) // MAX_PATH_POINTS)
         pts = pts[::step] + ([pts[-1]] if (len(pts) - 1) % step else [])
     return pts
+
+
+MAX_BARS = 160
+BAR_HOURS = (1, 2, 4, 6, 8, 12, 24)
+
+
+def _bars(pts: list[tuple[datetime, float]], start: datetime, end: datetime, min_per_bar: float) -> tuple[int, list[list]]:
+    """Candles built from stored closes: the smallest bar size (hours) giving at most MAX_BARS bars with about
+    `min_per_bar` prices in each. Open = the previous bar's close, so gaps between bars don't break the chain;
+    high / low are the highest and lowest stored prices, so wicks between two stored prices are not seen."""
+    if len(pts) < 2:
+        return 24, []
+    span_h = max(1.0, (end - start).total_seconds() / 3600)
+    hours = BAR_HOURS[-1]
+    for hrs in BAR_HOURS:
+        n = span_h / hrs
+        if n <= MAX_BARS and len(pts) / n >= min_per_bar:
+            hours = hrs
+            break
+    size = hours * 3600
+    epoch = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    buckets: dict[int, list[float]] = {}
+    for ts, px in pts:
+        buckets.setdefault(int((ts - epoch).total_seconds() // size), []).append(px)
+    out, prev = [], None
+    for k in sorted(buckets):
+        v = buckets[k]
+        o = prev if prev is not None else v[0]
+        out.append([(epoch + timedelta(seconds=k * size)).isoformat(), o, max(o, *v), min(o, *v), v[-1]])
+        prev = v[-1]
+    return hours, out
 
 
 def _snapshot(db: Session, rec: SignalRecord) -> dict | None:
@@ -353,16 +384,19 @@ def setup_detail(db: Session, signal_id: int, now: datetime | None = None) -> di
                  if day else opened + timedelta(days=PLAN["swing"]["days"]))
     after = _aware(plan.outcome_at) if plan.outcome_at else min(trade_end, now)
     end = min(now, after + (timedelta(hours=12) if day else timedelta(days=3)))
+    raw = _path(db, rec.asset, start, max(end, opened), thin=False)
+    bar_hours, bars = _bars(raw, start, max(end, opened), 2 if day else 3)
     pts = _path(db, rec.asset, start, max(end, opened))
     call = {"id": rec.id, "asset": rec.asset, "direction": rec.direction, "grade": rec.grade,
             "confluence": rec.confluence, "opened_at": opened.isoformat(), "entry_price": rec.entry_price,
             "open": rec.superseded_at is None, "note": rec.note,
             "superseded_at": _aware(rec.superseded_at).isoformat() if rec.superseded_at else None} | _plan_json(rec, plan)
-    return {"call": call, "prices": [[ts.isoformat(), px] for ts, px in pts],
+    return {"call": call, "prices": [[ts.isoformat(), px] for ts, px in pts], "bars": bars, "bar_hours": bar_hours,
             "window": {"start": start.isoformat(), "end": end.isoformat(), "trade_end": trade_end.isoformat()},
             "setup": _snapshot(db, rec),
-            "note": "Line = stored prices (hourly where available, daily closes otherwise), so a level touched "
-                    "between two prices may not show. The setup is the analysis as it stood when the call was given."}
+            "note": "Built from stored prices (hourly where available, daily closes otherwise): each candle opens at the "
+                    "previous close and its wicks are the highest and lowest stored prices, so a level touched between "
+                    "two stored prices may not show. The setup is the analysis as it stood when the call was given."}
 
 
 def summary(db: Session) -> dict:

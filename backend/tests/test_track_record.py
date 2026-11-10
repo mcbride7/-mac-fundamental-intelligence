@@ -138,6 +138,9 @@ def test_setup_detail_chart_and_snapshot(client, db):
     d = tr.setup_detail(db, rec.id, now=T0 + timedelta(days=9))
     assert d["call"]["id"] == rec.id and d["call"]["stop_loss"] and d["call"]["take_profit"]
     assert len(d["prices"]) > 50 and d["prices"][0][0] < d["call"]["opened_at"] < d["prices"][-1][0]
+    assert d["bar_hours"] == 24 and 15 <= len(d["bars"]) <= 30  # prices every 6h -> daily candles
+    for (_, o, h, lo, c), nxt in zip(d["bars"], d["bars"][1:]):
+        assert lo <= min(o, c) and h >= max(o, c) and nxt[1] == c  # each candle opens at the previous close
     s = d["setup"]
     assert s["grade"] == "A" and s["direction"] == "LONG" and s["primary_driver"] == "RBA hawkish"
     assert s["factors"][0] == {"name": "Central Bank Divergence", "score": 14.0, "max": 20}
