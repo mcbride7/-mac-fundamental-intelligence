@@ -118,3 +118,29 @@ def test_grade_c_is_a_day_trade(db):
     db.commit()
     plan = tr.plan_for(db, rec)
     assert plan.trade_type == "day" and plan.stop_loss is None  # no history to size levels from: left blank
+
+
+def test_setup_detail_chart_and_snapshot(client, db):
+    from app.models import TradeSetup
+    from app.services import track_record as tr
+
+    for h in range(-24 * 14, 24 * 10, 6):  # prices every 6h, two weeks before to ten days after
+        _price(db, "AUDUSD", T0 + timedelta(hours=h), 0.6500 * (1 + 0.0004 * h / 24 + (0.002 if h % 12 else -0.002)))
+    common = dict(asset="AUDUSD", confluence_score=55.0, data_status="complete", primary_driver="RBA hawkish",
+                  confirmation=["Close above 0.66"], invalidation=["Close below 0.64"])
+    db.add(TradeSetup(as_of=T0 - timedelta(days=3), direction="SHORT", grade="C", factors={}, **common))
+    db.add(TradeSetup(as_of=T0 - timedelta(minutes=1), direction="LONG", grade="A",
+                      factors={"Central Bank Divergence": 14.0, "Risk Sentiment": -2.5}, **common))
+    db.add(TradeSetup(as_of=T0 + timedelta(days=2), direction="SHORT", grade="B", factors={}, **common))
+    db.commit()
+    rec = tr.record(db, "AUDUSD", "A", "LONG", 55.0, now=T0)
+    db.commit()
+    d = tr.setup_detail(db, rec.id, now=T0 + timedelta(days=9))
+    assert d["call"]["id"] == rec.id and d["call"]["stop_loss"] and d["call"]["take_profit"]
+    assert len(d["prices"]) > 50 and d["prices"][0][0] < d["call"]["opened_at"] < d["prices"][-1][0]
+    s = d["setup"]
+    assert s["grade"] == "A" and s["direction"] == "LONG" and s["primary_driver"] == "RBA hawkish"
+    assert s["factors"][0] == {"name": "Central Bank Divergence", "score": 14.0, "max": 20}
+    r = client.get(f"/api/track-record/{rec.id}/setup")
+    assert r.status_code == 200 and r.json()["setup"]["grade"] == "A"
+    assert client.get("/api/track-record/999999/setup").status_code == 404

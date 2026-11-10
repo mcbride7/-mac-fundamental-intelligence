@@ -289,6 +289,82 @@ def _plan_json(rec: SignalRecord, plan: SignalPlan | None) -> dict:
             "outcome_at": _aware(plan.outcome_at).isoformat() if plan.outcome_at else None, "result_r": plan.result_r}
 
 
+# --------------------------------------------------------------------------- one call's full setup (for its chart)
+
+MAX_PATH_POINTS = 600
+
+
+def _path(db: Session, asset: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+    """Prices from `start` to `end` for the call's chart: every stored price (hourly where available); daily
+    closes when fewer than 10 are stored (e.g. crosses built from their USD legs). Thinned to MAX_PATH_POINTS."""
+    pts = [(_aware(ts), px) for ts, px in db.execute(
+        select(MarketPrice.ts, MarketPrice.price).where(MarketPrice.symbol == asset, MarketPrice.ts >= start,
+                                                        MarketPrice.ts <= end).order_by(MarketPrice.ts))]
+    if len(pts) < 10:
+        daily = []
+        for d, v in sorted(_series(db, asset).items()):
+            ts = datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=21)
+            if start <= ts <= end and v:
+                daily.append((ts, v))
+        if len(daily) > len(pts):
+            pts = daily
+    if len(pts) > MAX_PATH_POINTS:
+        step = -(-len(pts) // MAX_PATH_POINTS)
+        pts = pts[::step] + ([pts[-1]] if (len(pts) - 1) % step else [])
+    return pts
+
+
+def _snapshot(db: Session, rec: SignalRecord) -> dict | None:
+    """The trade setup the engine stored when the call was made (latest at or just before it)."""
+    from app.analytics.trading import FACTOR_WEIGHTS, LABELS
+    from app.models import TradeSetup
+
+    at = _aware(rec.opened_at) + timedelta(minutes=2)
+    q = select(TradeSetup).where(TradeSetup.asset == rec.asset, TradeSetup.as_of <= at)
+    s = (db.scalar(q.where(TradeSetup.grade == rec.grade, TradeSetup.direction == rec.direction)
+                   .order_by(TradeSetup.as_of.desc(), TradeSetup.id.desc()))
+         or db.scalar(q.order_by(TradeSetup.as_of.desc(), TradeSetup.id.desc())))
+    if s is None:
+        return None
+    weights = {LABELS[k]: w for k, w in FACTOR_WEIGHTS.items()}
+    factors = [{"name": k, "score": round(v, 1), "max": weights.get(k)}
+               for k, v in sorted((s.factors or {}).items(), key=lambda kv: -abs(kv[1] or 0)) if v is not None]
+    return {"as_of": _aware(s.as_of).isoformat(), "grade": s.grade, "direction": s.direction,
+            "confluence": s.confluence_score, "factors": factors, "primary_driver": s.primary_driver,
+            "secondary_drivers": s.secondary_drivers or [], "catalysts": s.catalysts or [],
+            "confirmation": s.confirmation or [], "invalidation": s.invalidation or [], "risks": s.risks or [],
+            "alternative": s.alternative, "data_status": s.data_status, "grade_cap_reason": s.grade_cap_reason}
+
+
+def setup_detail(db: Session, signal_id: int, now: datetime | None = None) -> dict:
+    """Everything needed to draw one call: the price path around it, its levels and outcome, and the setup
+    (factor scores, drivers, confirmation / invalidation) as it stood when the call was given."""
+    now = now or utcnow()
+    rec = db.get(SignalRecord, signal_id)
+    if rec is None:
+        raise LookupError("No such call")
+    plan = plan_for(db, rec)
+    check_plan(db, rec, plan, now)
+    db.commit()
+    opened = _aware(rec.opened_at)
+    day = plan.trade_type == "day"
+    start = opened - (timedelta(days=2) if day else timedelta(days=15))
+    trade_end = (max(datetime.combine(opened.date(), datetime.max.time(), tzinfo=timezone.utc), opened + timedelta(hours=8))
+                 if day else opened + timedelta(days=PLAN["swing"]["days"]))
+    after = _aware(plan.outcome_at) if plan.outcome_at else min(trade_end, now)
+    end = min(now, after + (timedelta(hours=12) if day else timedelta(days=3)))
+    pts = _path(db, rec.asset, start, max(end, opened))
+    call = {"id": rec.id, "asset": rec.asset, "direction": rec.direction, "grade": rec.grade,
+            "confluence": rec.confluence, "opened_at": opened.isoformat(), "entry_price": rec.entry_price,
+            "open": rec.superseded_at is None, "note": rec.note,
+            "superseded_at": _aware(rec.superseded_at).isoformat() if rec.superseded_at else None} | _plan_json(rec, plan)
+    return {"call": call, "prices": [[ts.isoformat(), px] for ts, px in pts],
+            "window": {"start": start.isoformat(), "end": end.isoformat(), "trade_end": trade_end.isoformat()},
+            "setup": _snapshot(db, rec),
+            "note": "Line = stored prices (hourly where available, daily closes otherwise), so a level touched "
+                    "between two prices may not show. The setup is the analysis as it stood when the call was given."}
+
+
 def summary(db: Session) -> dict:
     recs = list(db.scalars(select(SignalRecord).order_by(SignalRecord.opened_at.desc())))
     now = utcnow()

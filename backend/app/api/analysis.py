@@ -46,6 +46,17 @@ def track_record_summary(db: Session = Depends(get_db)):
     return track_record.summary(db)
 
 
+@router.get("/track-record/{signal_id}/setup")
+def track_record_setup(signal_id: int, db: Session = Depends(get_db)):
+    """One call's chart data and the setup behind it, as it stood when the call was given."""
+    from app.services import track_record
+
+    try:
+        return track_record.setup_detail(db, signal_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+
 @router.patch("/track-record/{signal_id}")
 def track_record_edit(signal_id: int, body: dict, db: Session = Depends(get_db)):
     """Change a call's trade type (swing / day), stop loss or take profit."""
