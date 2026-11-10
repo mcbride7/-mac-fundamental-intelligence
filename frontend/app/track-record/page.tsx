@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
+import StrategyBacktest from "@/components/StrategyBacktest";
 import { Button, Empty, ErrorBox, GradeBadge, Loading, PageTitle, Panel } from "@/components/ui";
 import { patch, useApi } from "@/lib/api";
 import { dateTime, num, pair, signed } from "@/lib/format";
@@ -51,15 +52,35 @@ function PlanEditor({ r, onDone }: { r: any; onDone: () => void }) {
 
 const moveCls = (v: number | null) => (v === null || v === undefined ? "text-muted" : v > 0 ? "text-dove" : v < 0 ? "text-hawk" : "");
 
+const VIEWS = [["live", "Live calls"], ["backtest", "S&D strategy backtest"]] as const;
+type View = (typeof VIEWS)[number][0];
+
 export default function TrackRecord() {
   const { data, error, loading, reload } = useApi<any>("/api/track-record");
   const [editing, setEditing] = useState<number | null>(null);
   const [type, setType] = useState("");
+  const [view, setView] = useState<View>("live");
+  useEffect(() => { if (window.location.hash === "#backtest") setView("backtest"); }, []);
+  const pick = (v: View) => {
+    setView(v);
+    try { window.history.replaceState(null, "", v === "backtest" ? "#backtest" : window.location.pathname); } catch { /* ignore */ }
+  };
   const calls: any[] = (data?.recent || []).filter((r: any) => !type || r.trade_type === type);
   return (
     <>
       <PageTitle title="Track record"
-        subtitle="Every graded call the app makes: swing or day trade, its stop loss and take profit, which was hit first, and what the price did 1, 5 and 20 days later. Moves are in the call's direction, before costs." />
+        subtitle={view === "live"
+          ? "Every graded call the app makes: swing or day trade, its stop loss and take profit, which was hit first, and what the price did 1, 5 and 20 days later. Moves are in the call's direction, before costs."
+          : "The supply & demand strategy tested on historical data: every trade, its result in R, and how it did on the years that were not used to build the rules. Costs included."} />
+      <div role="tablist" aria-label="Track record view" className="mb-5 flex gap-1 border-b border-line">
+        {VIEWS.map(([v, label]) => (
+          <button key={v} role="tab" aria-selected={view === v} onClick={() => pick(v)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${view === v ? "border-verify text-text" : "border-transparent text-muted hover:text-text"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "backtest" ? <StrategyBacktest /> : <>
       <ErrorBox error={error} />
       {loading && !data ? <Loading /> : data && (
         <>
@@ -133,6 +154,7 @@ export default function TrackRecord() {
           </div>
         </>
       )}
+      </>}
     </>
   );
 }
