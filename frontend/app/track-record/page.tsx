@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 
+import CallSetup from "@/components/CallSetup";
 import StrategyBacktest from "@/components/StrategyBacktest";
 import { Button, Empty, ErrorBox, GradeBadge, Loading, PageTitle, Panel } from "@/components/ui";
 import { patch, useApi } from "@/lib/api";
@@ -58,6 +59,7 @@ type View = (typeof VIEWS)[number][0];
 export default function TrackRecord() {
   const { data, error, loading, reload } = useApi<any>("/api/track-record");
   const [editing, setEditing] = useState<number | null>(null);
+  const [showing, setShowing] = useState<number | null>(null);
   const [type, setType] = useState("");
   const [view, setView] = useState<View>("live");
   useEffect(() => { if (window.location.hash === "#backtest") setView("backtest"); }, []);
@@ -125,10 +127,10 @@ export default function TrackRecord() {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="grid-table">
-                    <thead><tr><th>Given</th><th>Pair</th><th>Call</th><th>Grade</th><th>Type</th><th>Entry</th><th>Stop loss</th><th>Take profit</th><th>Result</th><th>1 day</th><th>5 days</th><th>20 days</th><th></th><th></th></tr></thead>
+                    <thead><tr><th>Given</th><th>Pair</th><th>Call</th><th>Grade</th><th>Type</th><th>Entry</th><th>Stop loss</th><th>Take profit</th><th>Result</th><th>1 day</th><th>5 days</th><th>20 days</th><th></th><th></th><th></th></tr></thead>
                     <tbody>
                       {calls.map((r: any) => (<Fragment key={r.id}>
-                        <tr>
+                        <tr onClick={() => setShowing(showing === r.id ? null : r.id)} className={`cursor-pointer ${showing === r.id ? "bg-panel-2/60" : ""}`} title="Click to see the setup">
                           <td className="whitespace-nowrap">{dateTime(r.opened_at)}</td><td>{pair(r.asset)}</td>
                           <td>{r.direction === "LONG" ? "Buy" : "Sell"}</td><td><GradeBadge grade={r.grade} /></td>
                           <td><TypeBadge t={r.trade_type} why={r.type_reason} /></td>
@@ -141,15 +143,18 @@ export default function TrackRecord() {
                           <td className={moveCls(r.ret_5d)}>{signed(r.ret_5d, 2, "%")}</td>
                           <td className={moveCls(r.ret_20d)}>{signed(r.ret_20d, 2, "%")}</td>
                           <td className="text-xs text-muted">{r.open ? "current" : "replaced"}{r.manual ? " · levels edited" : ""}{r.note ? ` · ${r.note}` : ""}</td>
-                          <td><button onClick={() => setEditing(editing === r.id ? null : r.id)} className="rounded border border-line px-2 py-0.5 text-xs hover:bg-panel-2">Edit</button></td>
+                          <td><button onClick={(e) => { e.stopPropagation(); setShowing(showing === r.id ? null : r.id); }} aria-expanded={showing === r.id}
+                            className={`whitespace-nowrap rounded border px-2 py-0.5 text-xs ${showing === r.id ? "border-verify text-verify" : "border-line hover:bg-panel-2"}`}>{showing === r.id ? "Hide setup" : "Setup"}</button></td>
+                          <td><button onClick={(e) => { e.stopPropagation(); setEditing(editing === r.id ? null : r.id); }} className="rounded border border-line px-2 py-0.5 text-xs hover:bg-panel-2">Edit</button></td>
                         </tr>
-                        {editing === r.id && <tr><td colSpan={14}><div className="sticky left-0 w-fit max-w-[85vw]"><PlanEditor r={r} onDone={() => { setEditing(null); reload(); }} /></div></td></tr>}
+                        {showing === r.id && <tr><td colSpan={15} style={{ padding: 0 }}><div className="sticky left-0 max-w-[1000px] p-3" style={{ width: "min(100%, calc(100vw - 4.5rem))" }}><CallSetup id={r.id} /></div></td></tr>}
+                        {editing === r.id && <tr><td colSpan={15}><div className="sticky left-0 w-fit max-w-[85vw]"><PlanEditor r={r} onDone={() => { setEditing(null); reload(); }} /></div></td></tr>}
                       </Fragment>))}
                     </tbody>
                   </table>
                 </div>
               )}
-              <p className="mt-3 text-xs text-muted">{data.plan_note} Hover a trade type to see why it was chosen. Edit a row to switch swing / day or set your own levels; the result is re-checked.</p>
+              <p className="mt-3 text-xs text-muted">{data.plan_note} Click a call to see its chart and the setup behind it. Hover a trade type to see why it was chosen. Edit a row to switch swing / day or set your own levels; the result is re-checked.</p>
             </Panel>
           </div>
         </>
