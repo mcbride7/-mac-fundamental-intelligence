@@ -49,6 +49,12 @@ RSS_FEEDS = [
     ("ing", "ING THINK", ("https://think.ing.com/rss/", "https://think.ing.com/rss/articles/",
                           "https://news.google.com/rss/search?q=site:think.ing.com+when:7d&hl=en-US&gl=US&ceid=US:en"),
      "news", []),  # ING's economics and FX research (free)
+    # world news, kept only when the headline is geopolitical (wars, sanctions, tensions, ceasefires...)
+    ("bbc_world", "BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml", "geopolitics", []),
+    ("aljazeera", "Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml", "geopolitics", []),
+    ("geo_markets", "Geopolitics & markets (Google News)",
+     "https://news.google.com/rss/search?q=(geopolitical+OR+sanctions+OR+ceasefire+OR+missile+OR+invasion)+markets+when:2d"
+     "&hl=en-US&gl=US&ceid=US:en", "geopolitics", []),
 ]
 
 CURRENCY_WORDS = {
@@ -82,10 +88,89 @@ TOPICS = {
              "wages", "earnings"],
     "Growth": ["gdp", "growth", "recession", "pmi", "retail sales", "manufacturing", "services sector",
                "consumer confidence", "sentiment", "output"],
-    "Trade & politics": ["tariff", "trade", "election", "government", "shutdown", "sanction", "war", "geopolit",
-                         "budget", "fiscal", "debt"],
+    "Trade & politics": ["tariff", "trade", "election", "government", "shutdown", "budget", "fiscal", "debt"],
+    "Geopolitics": [],  # matched with whole words: see GEO_WORDS
     "Commodities": ["gold", "silver", "oil", "crude", "opec", "copper", "commodit"],
 }
+
+GEO_WORDS = [r"wars?", r"warfare", r"invasion", r"invade[sd]?", r"missiles?", r"air ?strikes?", r"drone strikes?",
+             r"military", r"troops", r"army", r"navy", r"ceasefire", r"truce", r"peace (talks|deal|plan)", r"sanctions?",
+             r"embargo", r"blockade", r"nato", r"geopolitic\w*", r"conflict", r"hostilities", r"escalat\w+",
+             r"de-?escalat\w+", r"nuclear (weapon|test|threat)\w*", r"coup", r"terror\w*", r"hostages?", r"shelling",
+             r"bomb(ing|ed|s)?", r"attacks? on", r"strait of hormuz", r"red sea", r"houthis?", r"hezbollah", r"hamas",
+             r"gaza", r"west bank", r"ukrain\w*", r"kremlin", r"putin", r"zelensk\w*", r"taiwan", r"south china sea",
+             r"north korea\w*", r"pyongyang", r"tehran", r"iran\w*", r"israel\w*", r"syria\w*", r"yemen\w*",
+             r"venezuela\w*", r"export controls?", r"rare earths?"]
+_GEO = re.compile(r"(?<![a-z])(" + "|".join(GEO_WORDS) + r")(?![a-z])", re.I)
+
+# hotspot: words that identify it, and what it usually means for currencies and commodities
+HOTSPOTS = [
+    ("Russia–Ukraine", r"ukrain\w*|russia\w*|kremlin|putin|zelensk\w*|moscow|kyiv|crimea|donbas",
+     ["EUR", "CHF", "XAU", "OIL"],
+     "Escalation hurts the euro (Europe's energy and growth) and lifts the Swiss franc, gold and gas/oil; peace talks do the reverse."),
+    ("Middle East", r"israel\w*|gaza|hamas|hezbollah|lebanon|iran\w*|tehran|houthis?|red sea|yemen\w*|syria\w*|strait of hormuz|west bank",
+     ["OIL", "XAU", "CAD", "JPY", "CHF"],
+     "Escalation lifts oil (helping CAD and NOK), gold and the safe havens (JPY, CHF, USD); a threat to Hormuz or Red Sea shipping matters most."),
+    ("US–China & Taiwan", r"taiwan|south china sea|export controls?|rare earths?|chip (curbs|ban)|beijing|xi jinping",
+     ["CNY", "AUD", "NZD", "JPY", "USD"],
+     "Tension weighs on the yuan and China-linked AUD/NZD and lifts the yen and dollar; deals and truces do the reverse."),
+    ("Korean peninsula", r"north korea\w*|pyongyang|kim jong", ["JPY", "KRW", "XAU"],
+     "Missile tests and threats bring brief safe-haven buying of the yen and gold."),
+    ("Sanctions & trade wars", r"sanctions?|embargo|tariffs?|trade war", ["USD", "CNY", "MXN", "CAD", "EUR"],
+     "New tariffs or sanctions hit the targeted country's currency (often MXN, CAD, CNY, EUR) and can lift the dollar."),
+    ("Latin America", r"venezuela\w*|colombia\w*|cartels?", ["OIL", "MXN"],
+     "Tension around Venezuela touches oil supply; US–Mexico security issues can weigh on the peso."),
+]
+_HOT = [(n, re.compile(r"(?<![a-z])(" + rx + r")(?![a-z])", re.I), c, why) for n, rx, c, why in HOTSPOTS]
+ESCALATE = re.compile(r"(?<![a-z])(escalat\w+|attack\w*|strikes?|struck|invad\w+|missiles?|bomb\w*|shelling|retaliat\w+|"
+                      r"threat\w*|mobili[sz]\w+|clash\w*|kill(ed|s|ing)|new sanctions|tensions? (rise|mount|flare)\w*|blockade)(?![a-z])", re.I)
+CALM = re.compile(r"(?<![a-z])(ceasefire|truce|peace|talks|de-?escalat\w+|deal|agreement|withdraw\w*|lifts? sanctions|"
+                  r"eases? sanctions|release[sd]? hostages|calm)(?![a-z])", re.I)
+
+
+STALL = re.compile(r"(?<![a-z])(stall\w*|collaps\w+|fail\w*|break(s)? down|broke down|reject\w*|violat\w+|"
+                   r"breach\w*|suspend\w*|walk(s|ed)? out)(?![a-z])", re.I)
+
+
+def _direction(title: str) -> int:
+    """+1 escalating, -1 calming, 0 unclear (e.g. "attack ... as talks stall" = escalating)."""
+    e, c, st = ESCALATE.search(title), CALM.search(title), STALL.search(title)
+    if st and (e or c):
+        return 1
+    if e and not c:
+        return 1
+    if c and not e:
+        return -1
+    if c and e:  # both: a deal / ceasefire outweighs; plain "talks" doesn't
+        return -1 if c.group(0).lower() not in ("talks", "peace") else 1
+    return 0
+
+
+def is_geo(text: str) -> bool:
+    return bool(_GEO.search(text or ""))
+
+
+def geopolitics(arts: list) -> dict:
+    """Hotspots in recent headlines: how many, escalating or calming, latest headlines, and what it means for markets."""
+    spots = []
+    for name, rx, ccys, why in _HOT:
+        mine = [a for a in arts if is_geo(f"{a.title} {a.summary or ''}") and rx.search(f"{a.title} {a.summary or ''}")]
+        if not mine:
+            continue
+        dirs = [_direction(a.title) for a in mine]
+        esc, calm = dirs.count(1), dirs.count(-1)
+        trend = "Escalating" if esc >= calm + 2 else "Calming" if calm >= esc + 2 else "Mixed"
+        spots.append({"name": name, "articles": len(mine), "escalation": esc, "calming": calm, "trend": trend,
+                      "affects": ccys, "impact": why, "latest": [_brief(a) for a in mine[:4]]})
+    spots.sort(key=lambda x: -x["articles"])
+    total = sum(1 for a in arts if is_geo(f"{a.title} {a.summary or ''}"))
+    esc = sum(x["escalation"] for x in spots)
+    calm = sum(x["calming"] for x in spots)
+    return {"articles": total, "hotspots": spots,
+            "lean": "Rising tension (supports safe havens: JPY, CHF, gold, USD)" if esc >= calm + 3 else
+                    "Easing tension (supports risk currencies: AUD, NZD, EM)" if calm >= esc + 3 else
+                    "No clear direction" if total else "Quiet"}
+
 
 HAWKISH = [r"hawkish", r"rate hikes?", r"hikes? rates?", r"hiking", r"raises? (interest )?rates?",
            r"raised (interest )?rates?", r"rate increase", r"tighten(ing|s|ed)?", r"higher for longer",
@@ -133,7 +218,9 @@ def classify(title: str, summary: str = "", base_ccys: list[str] | None = None) 
         for c in (a, b):
             if c not in ccys:
                 ccys.append(c)
-    topics = [t for t, words in TOPICS.items() if any(w in low for w in words)]
+    topics = [t for t, words in TOPICS.items() if words and any(w in low for w in words)]
+    if is_geo(text):
+        topics.append("Geopolitics")
     h, d = len(_HAWK.findall(text)), len(_DOVE.findall(text))
     tone = "hawkish" if h > d else "dovish" if d > h else "neutral"
     ro, rn = len(_ROFF.findall(text)), len(_RON.findall(text))
@@ -248,6 +335,8 @@ def store(db: Session, items: list[dict], feed: str, source_name: str, kind: str
         uid = uid_of(it.get("link"), it["title"])
         if pub < cutoff or uid in seen or it["title"].lower() in titles:
             continue
+        if kind == "geopolitics" and not is_geo(f"{it['title']} {it.get('summary') or ''}"):
+            continue  # world-news feeds: keep only the geopolitical headlines
         tags = classify(it["title"], it.get("summary") or "", base_ccys)
         if kind == "central_bank":
             tags["importance"] = "high" if tags["importance"] == "high" or "Central banks" in tags["topics"] else "normal"
@@ -329,7 +418,8 @@ def listing(db: Session, currency: str | None = None, topic: str | None = None, 
     arts = list(db.scalars(select(NewsArticle).where(NewsArticle.published_at >= since)
                            .order_by(NewsArticle.published_at.desc())))
     def ok(a: NewsArticle) -> bool:
-        return ((not currency or currency.upper() in (a.currencies or [])) and (not topic or topic in (a.topics or []))
+        return ((not currency or currency.upper() in (a.currencies or []))
+                and (not topic or topic in (a.topics or []) or (topic == "Geopolitics" and is_geo(f"{a.title} {a.summary or ''}")))
                 and (not tone or (a.tone == tone if tone in ("hawkish", "dovish", "neutral") else a.risk == tone))
                 and (not kind or a.kind == kind) and (not source or a.source_name == source)
                 and (not q or q.lower() in f"{a.title} {a.summary or ''}".lower()))
@@ -353,10 +443,11 @@ def listing(db: Session, currency: str | None = None, topic: str | None = None, 
     for a in arts:  # every site in the period, so you can pick one (central banks first, then by number of articles)
         counts[(a.source_name, a.kind)] = counts.get((a.source_name, a.kind), 0) + 1
     sources = [{"name": n, "kind": k, "count": c}
-               for (n, k), c in sorted(counts.items(), key=lambda x: (x[0][1] != "central_bank", -x[1], x[0][0]))]
+               for (n, k), c in sorted(counts.items(), key=lambda x: ({"central_bank": 0, "news": 1}.get(x[0][1], 2), -x[1], x[0][0]))]
     return {"articles": [row(a) for a in shown[:limit]], "total": len(shown), "tone": tone_by, "sources": sources,
             "risk": {"risk_on": rn, "risk_off": ro, "items": risk_items, "lean": "Risk-off" if ro - rn >= 3 else "Risk-on" if rn - ro >= 3 else "Mixed"},
-            "topics": list(TOPICS), "feeds": cfg.get("feeds", {}), "last_run": cfg.get("last_run")}
+            "topics": list(TOPICS), "feeds": cfg.get("feeds", {}), "last_run": cfg.get("last_run"),
+            "geopolitics": geopolitics(recent)}
 
 
 def tone_cells(db: Session, days: int = 3) -> dict[str, int]:

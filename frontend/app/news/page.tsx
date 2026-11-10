@@ -13,6 +13,47 @@ const TONE_CLS: Record<string, string> = {
   risk_on: "bg-good/25 text-up", risk_off: "bg-amber/20 text-amber",
 };
 
+const TREND_CLS: Record<string, string> = { Escalating: "bg-bear-soft/20 text-bear-soft", Calming: "bg-up/20 text-up", Mixed: "bg-panel-2 text-muted" };
+
+function Geopolitics({ g, onFilter }: { g: any; onFilter: () => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!g) return null;
+  return (
+    <Panel title="Geopolitics · last 3 days" collapseId="news-geo"
+      action={<button onClick={onFilter} className="rounded border border-line px-2 py-1 text-xs hover:bg-panel-2">Show geopolitical headlines</button>}>
+      <p className="mb-3 text-sm">Overall: <b className={g.lean.startsWith("Rising") ? "text-bear-soft" : g.lean.startsWith("Easing") ? "text-up" : ""}>{g.lean}</b>
+        <span className="text-muted"> · {g.articles} geopolitical headline{g.articles === 1 ? "" : "s"}</span></p>
+      {!g.hotspots.length ? <p className="text-sm text-muted">No geopolitical headlines in the last 3 days.</p> : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {g.hotspots.map((h: any) => (
+            <div key={h.name} className="rounded border border-line p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-medium">{h.name}</h3>
+                <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TREND_CLS[h.trend]}`}>{h.trend}</span>
+              </div>
+              <p className="mt-1 text-xs text-muted tabular-nums">{h.articles} headlines · {h.escalation} escalating · {h.calming} calming</p>
+              <p className="mt-2 text-sm">{h.impact}</p>
+              <p className="mt-1 text-xs text-muted">Watch: {h.affects.map((c: string) => LABEL[c] || c).join(", ")}</p>
+              <button onClick={() => setOpen(open === h.name ? null : h.name)} aria-expanded={open === h.name}
+                className="mt-2 text-xs underline decoration-dotted underline-offset-2">{open === h.name ? "Hide headlines" : "Latest headlines"}</button>
+              {open === h.name && (
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  {h.latest.map((a: any) => (
+                    <li key={a.id}>{a.url ? <a href={a.url} target="_blank" rel="noreferrer" className="hover:underline">{a.title}</a> : a.title}
+                      <span className="block text-xs text-muted">{a.source}{a.published_at ? ` · ${ago(a.published_at)}` : ""}</span></li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-3 text-xs text-muted">Headlines from the news sites plus BBC World, Al Jazeera and Google News (world feeds keep only geopolitical stories).
+        &ldquo;Escalating&rdquo; / &ldquo;calming&rdquo; is read from the headline wording (attacks, strikes, new sanctions vs ceasefires, deals, talks). The market notes are the usual pattern, not a forecast.</p>
+    </Panel>
+  );
+}
+
 function ago(iso: string) {
   const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (m < 60) return `${m}m ago`;
@@ -88,7 +129,7 @@ export default function NewsPage() {
   return (
     <>
       <PageTitle title="News"
-        subtitle="Central bank press releases and FX headlines, tagged by currency, topic and tone. Hawkish news supports a currency, dovish news weighs on it; the last 3 days feed the News tone column on Top setups." />
+        subtitle="Central bank press releases, FX headlines and geopolitics, tagged by currency, topic and tone. Hawkish news supports a currency, dovish news weighs on it; the last 3 days feed the News tone column on Top setups." />
       <div className="space-y-6">
         <Panel title="News tone by currency · last 3 days" collapseId="news-tone"
           action={<span className="text-xs text-muted">Tap a currency to see which headlines make up its score</span>}>
@@ -124,6 +165,8 @@ export default function NewsPage() {
           </div>
         </Panel>
 
+        <Geopolitics g={data?.geopolitics} onFilter={() => { setTopic("Geopolitics"); setDays(3); }} />
+
         <Panel title="Headlines" collapseId="news-list"
           action={<Button onClick={refresh} disabled={busy}>{busy ? "Fetching…" : "Refresh now"}</Button>}>
           <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
@@ -138,10 +181,11 @@ export default function NewsPage() {
                 <option value="">All sources</option>
                 <option value="kind:central_bank">Central banks only</option>
                 <option value="kind:news">News sites only</option>
-                {(["central_bank", "news"] as const).map((k) => {
+                <option value="kind:geopolitics">World news (geopolitics) only</option>
+                {(["central_bank", "news", "geopolitics"] as const).map((k) => {
                   const list = (data?.sources || []).filter((x: any) => x.kind === k);
                   return list.length ? (
-                    <optgroup key={k} label={k === "central_bank" ? "One central bank" : "One news site"}>
+                    <optgroup key={k} label={k === "central_bank" ? "One central bank" : k === "news" ? "One news site" : "One world-news site"}>
                       {list.map((x: any) => <option key={x.name} value={`site:${x.name}`}>{x.name} ({x.count})</option>)}
                     </optgroup>
                   ) : null;
