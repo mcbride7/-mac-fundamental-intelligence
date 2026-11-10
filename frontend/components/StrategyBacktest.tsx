@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 import { GradeBadge, Panel, Stat } from "@/components/ui";
 import { num, signed } from "@/lib/format";
@@ -9,6 +9,7 @@ import backtest from "@/lib/strategy-backtest.json";
 type Trade = {
   opened: string; closed: string; direction: "LONG" | "SHORT"; grade: string | null;
   entry: number; stop: number; target: number; result_r: number; outcome: "target" | "stop" | "expired";
+  chart?: string | null;
 };
 type Period = { label: string; trades: number; win_rate: number | null; avg_r: number | null };
 type Strategy = {
@@ -104,6 +105,7 @@ function EquityCurve({ points, split }: { points: [string, number][]; split?: st
 export default function StrategyBacktest() {
   const [id, setId] = useState(DATA.strategies[0].id);
   const [showAll, setShowAll] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
   const s = DATA.strategies.find((x) => x.id === id) || DATA.strategies[0];
   const trades = useMemo(() => [...s.trades].reverse(), [s]);
   const shown = showAll ? trades : trades.slice(0, 15);
@@ -112,7 +114,7 @@ export default function StrategyBacktest() {
     <>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {DATA.strategies.map((x) => (
-          <button key={x.id} onClick={() => { setId(x.id); setShowAll(false); }} aria-pressed={x.id === s.id}
+          <button key={x.id} onClick={() => { setId(x.id); setShowAll(false); setOpen(null); }} aria-pressed={x.id === s.id}
             className={`rounded border px-3 py-1.5 text-sm ${x.id === s.id ? "border-verify bg-verify/15 text-verify" : "border-line text-muted hover:bg-panel-2"}`}>
             {x.name}
           </button>
@@ -189,21 +191,53 @@ export default function StrategyBacktest() {
             </button>
           )}>
           <table className="grid-table">
-            <thead><tr><th>Opened</th><th>Call</th>{s.by_grade && <th>Grade</th>}<th>Entry</th><th>Stop loss</th><th>Take profit</th><th>Result</th><th>Closed</th></tr></thead>
+            <thead><tr><th>Opened</th><th>Call</th>{s.by_grade && <th>Grade</th>}<th>Entry</th><th>Stop loss</th><th>Take profit</th><th>Result</th><th>Closed</th><th>Setup</th></tr></thead>
             <tbody>
-              {shown.map((t) => (
-                <tr key={t.opened + t.direction}>
-                  <td className="whitespace-nowrap">{day(t.opened)}</td>
-                  <td>{t.direction === "LONG" ? "Buy" : "Sell"}</td>
-                  {s.by_grade && <td><GradeBadge grade={t.grade} /></td>}
-                  <td>{num(t.entry, 2)}</td><td>{num(t.stop, 2)}</td><td>{num(t.target, 2)}</td>
-                  <td className="whitespace-nowrap">
-                    <span className={`rounded px-2 py-0.5 text-xs font-semibold ${OUTCOME[t.outcome][1]}`}>
-                      {OUTCOME[t.outcome][0]} {signed(t.result_r, 2)}R</span>
-                  </td>
-                  <td className="whitespace-nowrap text-muted">{day(t.closed)}</td>
-                </tr>
-              ))}
+              {shown.map((t) => {
+                const key = t.opened + t.direction;
+                const isOpen = open === key;
+                return (
+                  <Fragment key={key}>
+                    <tr>
+                      <td className="whitespace-nowrap">{day(t.opened)}</td>
+                      <td>{t.direction === "LONG" ? "Buy" : "Sell"}</td>
+                      {s.by_grade && <td><GradeBadge grade={t.grade} /></td>}
+                      <td>{num(t.entry, 2)}</td><td>{num(t.stop, 2)}</td><td>{num(t.target, 2)}</td>
+                      <td className="whitespace-nowrap">
+                        <span className={`rounded px-2 py-0.5 text-xs font-semibold ${OUTCOME[t.outcome][1]}`}>
+                          {OUTCOME[t.outcome][0]} {signed(t.result_r, 2)}R</span>
+                      </td>
+                      <td className="whitespace-nowrap text-muted">{day(t.closed)}</td>
+                      <td>
+                        {t.chart && (
+                          <button onClick={() => setOpen(isOpen ? null : key)} aria-expanded={isOpen}
+                            className={`whitespace-nowrap rounded border px-2 py-0.5 text-xs ${isOpen ? "border-verify text-verify" : "border-line hover:bg-panel-2"}`}>
+                            {isOpen ? "Hide chart" : "View chart"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {isOpen && t.chart && (
+                      <tr>
+                        <td colSpan={s.by_grade ? 9 : 8} style={{ padding: 0 }}>
+                          <div className="sticky left-0 max-w-[1000px] p-3" style={{ width: "min(100%, calc(100vw - 4.5rem))" }}>
+                            <a href={t.chart} target="_blank" rel="noreferrer" title="Open full size">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={t.chart} loading="lazy" width={1000} height={520}
+                                alt={`${s.name}: ${t.direction === "LONG" ? "buy" : "sell"} ${day(t.opened)}, ${OUTCOME[t.outcome][0].toLowerCase()} ${signed(t.result_r, 2)}R. Chart of the zone, entry, stop loss and take profit.`}
+                                className="h-auto w-full rounded border border-line" />
+                            </a>
+                            <p className="mt-2 text-xs text-muted">
+                              Shaded box = the {t.direction === "LONG" ? "demand" : "supply"} zone. White box = the candle that confirmed the entry.
+                              Green / red areas = take profit / stop loss. Click the chart to open it full size.
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
           <p className="mt-3 text-xs text-muted">{DATA.note}</p>
