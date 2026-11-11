@@ -16,6 +16,7 @@ import time as _time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -142,6 +143,37 @@ def trade_for_call(db: Session, symbol: str, direction: str, opened: datetime, u
                    "message": ("Waiting for price to return to a fresh "
                                f"{'demand' if side == 'long' else 'supply'} zone and close back out of it"
                                if zones else f"Waiting for a fresh {'demand' if side == 'long' else 'supply'} zone to form")}
+
+
+def zone_map(db: Session, symbol: str, t0: str, t1: str) -> list[dict]:
+    """Every zone the rules detected that is live somewhere in [t0, t1]: where it is, when it became tradable,
+    and whether it is still fresh or when price first touched it (which uses it up)."""
+    r = run(db, symbol)
+    df = r["candles"]
+    if not r["enough"]:
+        return []
+    zones, _, _ = e.detect_zones(df, params())
+    h, l = df["High"].to_numpy(float), df["Low"].to_numpy(float)
+    idx = df.index
+    i0, i1 = int(idx.searchsorted(pd.Timestamp(t0))), int(idx.searchsorted(pd.Timestamp(t1)))
+    out = []
+    for z in zones:
+        act = z.active_from if z.active_from >= 0 else z.created
+        if act > i1 or act + params().zone_max_age < i0:
+            continue
+        touch = None
+        for j in range(act + 1, len(df)):
+            if (l[j] <= z.proximal) if z.kind == "demand" else (h[j] >= z.proximal):
+                touch = j
+                break
+        if touch is not None and touch < i0:
+            continue  # used up before the chart starts
+        start = max(0, z.created - z.base_len)
+        out.append({"kind": z.kind, "near": float(z.proximal), "far": float(z.distal), "pattern": z.pattern,
+                     "from": _ts(idx[start]).isoformat(), "active": _ts(idx[min(act, len(idx) - 1)]).isoformat(),
+                     "touched": _ts(idx[touch]).isoformat() if touch is not None else None,
+                     "bos": None if not np.isfinite(z.bos_level) else float(z.bos_level)})
+    return out[-12:]
 
 
 def chart(db: Session, symbol: str, around: datetime | None, end: datetime | None, bars: int = 140) -> list[dict]:

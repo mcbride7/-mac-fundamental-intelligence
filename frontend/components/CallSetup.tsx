@@ -30,10 +30,14 @@ function CandleChart({ d }: { d: any }) {
   };
   const traded = sd.state === "done" || sd.state === "open";
   const levels = traded ? [sd.entry, sd.stop, sd.target] : [];
-  const zones: { a: number; b: number; from: number; to: number; kind: string }[] = [];
-  if (sd.zone) zones.push({ a: sd.zone.near, b: sd.zone.far, from: idx(sd.zone.from), to: idx(sd.exit_at), kind: sd.zone.kind });
-  for (const z of sd.zones || []) zones.push({ a: z.near, b: z.far, from: idx(z.created), to: n - 1, kind: c.direction === "LONG" ? "demand" : "supply" });
-  const all = k.flatMap((b) => [b.h, b.l]).concat(levels, zones.flatMap((z) => [z.a, z.b]));
+  const zones: { a: number; b: number; from: number; to: number; kind: string; fresh: boolean; main?: boolean; bos?: number | null; act: number }[] = [];
+  if (sd.zone) zones.push({ a: sd.zone.near, b: sd.zone.far, from: idx(sd.zone.from), to: idx(sd.exit_at), kind: sd.zone.kind, fresh: true, main: true, act: idx(sd.zone.active) });
+  // every zone the rules detected in this window: fresh ones run to the right edge, used ones stop where price touched them
+  for (const z of d.zone_map || []) {
+    if (sd.zone && Math.abs(z.near - sd.zone.near) < 1e-9 && Math.abs(z.far - sd.zone.far) < 1e-9) { zones[0].bos = z.bos; continue; }
+    zones.push({ a: z.near, b: z.far, from: idx(z.from), to: z.touched ? idx(z.touched) : n - 1, kind: z.kind, fresh: !z.touched, bos: z.bos, act: idx(z.active) });
+  }
+  const all = k.flatMap((b) => [b.h, b.l]).concat(levels, zones.filter((z) => z.main || z.fresh).flatMap((z) => [z.a, z.b]));
   let lo = Math.min(...all), hi = Math.max(...all);
   const pad = (hi - lo || hi * 0.002) * 0.06; lo -= pad; hi += pad;
   const W = 1000, cw = W / n;
@@ -63,9 +67,16 @@ function CandleChart({ d }: { d: any }) {
               setHover(Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width) * n))));
             }}>
             {zones.map((z, i) => (
-              <rect key={i} x={z.from * cw} width={Math.max(cw, (z.to - z.from + 1) * cw)} y={Math.min(Y(z.a), Y(z.b))}
-                height={Math.max(0.6, Math.abs(Y(z.a) - Y(z.b)))} fill={zoneFill(z.kind)} opacity={0.18}
-                stroke={zoneFill(z.kind)} strokeOpacity={0.6} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+              <g key={i}>
+                <rect x={z.from * cw} width={Math.max(cw, (z.to - z.from + 1) * cw)} y={Math.min(Y(z.a), Y(z.b))}
+                  height={Math.max(0.6, Math.abs(Y(z.a) - Y(z.b)))} fill={zoneFill(z.kind)} fillOpacity={z.main ? 0.24 : z.fresh ? 0.16 : 0.07}
+                  stroke={zoneFill(z.kind)} strokeOpacity={z.main || z.fresh ? 0.75 : 0.3} strokeWidth={z.main ? 1.5 : 1}
+                  strokeDasharray={z.fresh || z.main ? undefined : "3 3"} vectorEffect="non-scaling-stroke" />
+                {z.bos != null && lo <= z.bos && z.bos <= hi && (
+                  <line x1={Math.max(0, z.from - 8) * cw} x2={Math.min(n, z.act + 6) * cw} y1={Y(z.bos)} y2={Y(z.bos)}
+                    stroke="var(--color-verify)" strokeOpacity={z.main || z.fresh ? 0.8 : 0.35} strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+                )}
+              </g>
             ))}
             {traded && ein != null && <>
               <rect x={X(ein)} width={Math.max(cw, X(eout) - X(ein))} y={Math.min(Y(sd.entry), Y(sd.target))} height={Math.abs(Y(sd.entry) - Y(sd.target))} fill="var(--color-up)" opacity={0.08} />
@@ -88,6 +99,11 @@ function CandleChart({ d }: { d: any }) {
             })}
             {hover != null && <line x1={X(hover)} x2={X(hover)} y1={0} y2={100} stroke="var(--color-muted)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
           </svg>
+          {zones.filter((z) => z.main || z.fresh).map((z, i) => (
+            <span key={`zl${i}`} className={`pointer-events-none absolute -translate-y-full whitespace-nowrap rounded px-1 text-[10px] font-medium ${z.kind === "demand" ? "text-up" : "text-bear-soft"}`}
+              style={{ left: `${Math.min(88, (z.from / n) * 100)}%`, top: `${Math.min(Y(z.a), Y(z.b))}%` }}>
+              {z.main ? `Traded ${z.kind} zone` : `Fresh ${z.kind}`}</span>
+          ))}
           {traded && ein != null && <span className="pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-verify"
             style={{ left: `${(X(ein) / W) * 100}%`, top: `${Y(sd.entry)}%` }} />}
           {traded && sd.exit != null && sd.exit_at && <span className={`pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink ${sd.outcome === "target" ? "bg-up" : sd.outcome === "stop" ? "bg-bear-soft" : "bg-muted"}`}
@@ -111,13 +127,16 @@ function CandleChart({ d }: { d: any }) {
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-up/40" />Demand zone</span>
         <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-bear-soft/40" />Supply zone</span>
+        <span><span className="mr-1 inline-block h-2 w-3 rounded-sm border border-dashed border-muted" />Used zone (touched)</span>
+        <span><span className="mr-1 inline-block w-4 border-t border-dashed border-verify align-middle" />Break of structure</span>
         <span><span className="mr-1 inline-block h-0.5 w-4 bg-amber align-middle" />200 EMA</span>
         <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-verify align-middle" />Entry</span>
         {sd.outcome && <span><span className={`mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle ${sd.outcome === "target" ? "bg-up" : sd.outcome === "stop" ? "bg-bear-soft" : "bg-muted"}`} />{OUTCOME[sd.outcome]}{sd.exit_at ? ` · ${dateTime(sd.exit_at)}` : ""}{sd.result_r != null ? ` · ${signed(sd.result_r, 1)}R` : ""}</span>}
       </div>
       <p className="mt-2 text-sm">
         {traded ? <>Grade <b>{sd.grade}</b> {sd.zone?.kind} zone ({sd.pattern}) · entered {dateTime(sd.entry_at)} on a 4-hour close back out of the zone
-          {sd.state === "open" ? " · still running" : ""}</> : <span className="text-muted">{sd.message}</span>}
+          {sd.state === "open" ? " · still running" : ""}</> : <span className="text-muted">{sd.message}
+            {(d.zone_map || []).length > 0 && <> · {(d.zone_map || []).filter((z: any) => !z.touched).length} fresh zone(s) on the chart, {(d.zone_map || []).filter((z: any) => z.touched).length} already used</>}</span>}
       </p>
     </div>
   );

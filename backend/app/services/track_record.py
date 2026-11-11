@@ -396,9 +396,12 @@ def setup_detail(db: Session, signal_id: int, now: datetime | None = None) -> di
                                         datetime.fromisoformat(sd["exit_at"]) if sd.get("exit_at") else now)
             else:
                 candles = sd_live.chart(db, rec.asset, opened, now)
+            zmap = sd_live.zone_map(db, rec.asset, candles[0]["t"], candles[-1]["t"]) if candles else []
         except Exception:
-            candles = []
-    return {"call": call, "candles": candles, "prices": [[ts.isoformat(), px] for ts, px in pts],
+            candles, zmap = [], []
+    else:
+        zmap = []
+    return {"call": call, "candles": candles, "zone_map": zmap, "prices": [[ts.isoformat(), px] for ts, px in pts],
             "window": {"start": start.isoformat(), "end": end.isoformat(), "trade_end": trade_end.isoformat()},
             "setup": _snapshot(db, rec),
             "note": ("4-hour candles built from FMP's hourly bars, with your strategy's zone, entry, stop and target "
