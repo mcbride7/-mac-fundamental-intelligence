@@ -50,7 +50,7 @@ class SignalPlan(Base):
 class PriceBar(Base):
     """Open / high / low / close bars (FMP): lets stops and targets be checked against each bar's real range."""
 
-    __tablename__ = "price_bars"
+    __tablename__ = "ohlcv_bars"  # (replaces an earlier "price_bars" table that had no volume)
     symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
     interval: Mapped[str] = mapped_column(String(8), primary_key=True)  # 1day | 1hour
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)  # bar start, UTC
@@ -58,4 +58,5 @@ class PriceBar(Base):
     high: Mapped[float] = mapped_column(Float)
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float)  # tick volume for forex; the zone rules use it when present
     source: Mapped[str] = mapped_column(String(16), default="fmp")

@@ -1,10 +1,12 @@
-"""FMP price bars (Starter plan): daily (5 years) and hourly (last ~60 days) open/high/low/close for forex and metals.
+"""FMP price bars (Starter plan): daily (5 years) and hourly (last ~13 months) open/high/low/close/volume for forex
+and metals. The hourly bars are combined into 4-hour candles for the supply & demand strategy.
 
 Used by the Track record to check stops and targets against each bar's real high and low, and to size them from the
 true average daily range (ATR) instead of close-to-close moves.
 """
 from __future__ import annotations
 
+import time as _time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -69,7 +71,12 @@ def save_bars(db: Session, symbol: str, interval: str, rows: list) -> int:
             continue
         if ts is None or not (lo <= min(o, c) and h >= max(o, c)):
             continue
-        db.merge(PriceBar(symbol=symbol, interval=interval, ts=ts, open=o, high=h, low=lo, close=c, source="fmp"))
+        try:
+            vol = float(x.get("volume")) if x.get("volume") is not None else None
+        except (TypeError, ValueError):
+            vol = None
+        db.merge(PriceBar(symbol=symbol, interval=interval, ts=ts, open=o, high=h, low=lo, close=c, volume=vol,
+                          source="fmp"))
         n += 1
     return n
 
@@ -95,12 +102,14 @@ def run_fmp_bars(db: Session, src: Source):
     today = date.today()
     n, failed = 0, []
     for sym in SYMBOLS:
-        for interval, full_days, recent_days, chunk in (("1day", 5 * 365, 10, 5 * 365), ("1hour", 60, 4, 30)):
+        # hourly: ~13 months on the first run (enough 4-hour candles for the 200 EMA + the 500-candle zone life)
+        for interval, full_days, recent_days, chunk in (("1day", 5 * 365, 10, 5 * 365), ("1hour", 400, 4, 30)):
             have = db.scalar(select(func.count()).select_from(PriceBar).where(PriceBar.symbol == sym, PriceBar.interval == interval))
             start = today - timedelta(days=recent_days if have else full_days)
             try:
                 while start <= today:
                     end = min(today, start + timedelta(days=chunk))
+                    _time.sleep(0.25)  # stay well inside 300 requests a minute
                     _, rows = _fetch(sym, interval, start, end)
                     n += save_bars(db, sym, interval, rows)
                     start = end + timedelta(days=1)
@@ -130,7 +139,7 @@ def bars(db: Session, symbol: str, interval: str, start: datetime | None = None,
 
     # read-only copies, so normalising the time never writes back to the database
     return [SimpleNamespace(symbol=b.symbol, interval=b.interval, ts=_utc(b.ts), open=b.open, high=b.high, low=b.low,
-                            close=b.close) for b in db.scalars(q.order_by(PriceBar.ts))]
+                            close=b.close, volume=b.volume) for b in db.scalars(q.order_by(PriceBar.ts))]
 
 
 def atr_pct(db: Session, symbol: str, at: datetime, days: int = 14) -> float | None:

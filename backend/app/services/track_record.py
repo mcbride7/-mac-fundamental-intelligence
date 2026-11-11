@@ -383,12 +383,65 @@ def setup_detail(db: Session, signal_id: int, now: datetime | None = None) -> di
     call = {"id": rec.id, "asset": rec.asset, "direction": rec.direction, "grade": rec.grade,
             "confluence": rec.confluence, "opened_at": opened.isoformat(), "entry_price": rec.entry_price,
             "open": rec.superseded_at is None, "note": rec.note,
-            "superseded_at": _aware(rec.superseded_at).isoformat() if rec.superseded_at else None} | _plan_json(rec, plan)
-    return {"call": call, "prices": [[ts.isoformat(), px] for ts, px in pts],
+            "superseded_at": _aware(rec.superseded_at).isoformat() if rec.superseded_at else None}
+    sd = sd_for(db, rec)
+    call |= _sd_fields(sd, _plan_json(rec, plan))
+    candles = []
+    if sd and sd.get("state") != "no_data":
+        from app.strategy import sd_live
+
+        try:
+            if sd.get("zone"):
+                candles = sd_live.chart(db, rec.asset, datetime.fromisoformat(sd["zone"]["from"]),
+                                        datetime.fromisoformat(sd["exit_at"]) if sd.get("exit_at") else now)
+            else:
+                candles = sd_live.chart(db, rec.asset, opened, now)
+        except Exception:
+            candles = []
+    return {"call": call, "candles": candles, "prices": [[ts.isoformat(), px] for ts, px in pts],
             "window": {"start": start.isoformat(), "end": end.isoformat(), "trade_end": trade_end.isoformat()},
             "setup": _snapshot(db, rec),
-            "note": "Line = stored prices (hourly where available, daily closes otherwise), so a level touched "
-                    "between two prices may not show. The setup is the analysis as it stood when the call was given."}
+            "note": ("4-hour candles built from FMP's hourly bars, with your strategy's zone, entry, stop and target "
+                     "and the 200 EMA." if candles else
+                     "Line = stored prices (no 4-hour candles yet: run FMP price bars on Data health).")
+                    + " The setup is the analysis as it stood when the call was given."}
+
+
+CALL_LIFE = timedelta(days=20)  # a call can be taken by the strategy while it stands, at most 20 days
+
+
+def sd_for(db: Session, r: SignalRecord) -> dict | None:
+    """The supply & demand strategy's trade for this call (or what it is waiting for). None if it can't run."""
+    from app.strategy import sd_live
+
+    opened = _aware(r.opened_at)
+    until = min(_aware(r.superseded_at) if r.superseded_at else opened + CALL_LIFE, opened + CALL_LIFE)
+    try:
+        return sd_live.trade_for_call(db, r.asset, r.direction, opened, until)
+    except Exception as exc:  # never break the page
+        import logging
+
+        logging.getLogger(__name__).warning("S&D strategy failed for %s: %s", r.asset, exc)
+        return None
+
+
+def _sd_fields(sd: dict | None, plan_json: dict) -> dict:
+    """Show the strategy's trade in the row; the volatility plan only when there are no price bars yet."""
+    if not sd or sd.get("state") == "no_data":
+        return plan_json | {"method": "volatility", "sd": sd}
+    if sd.get("state") in ("done", "open"):
+        risk = abs(sd["entry"] - sd["stop"]) or None
+        pct = lambda lvl: round(abs(lvl / sd["entry"] - 1) * 100, 2)
+        return {"method": "sd", "sd": sd, "trade_type": "swing",
+                "type_reason": f"{sd['rules']}: grade {sd['grade']} {sd['zone']['kind']} zone ({sd['pattern']})",
+                "stop_loss": round(sd["stop"], 6), "take_profit": round(sd["target"], 6),
+                "sl_pct": pct(sd["stop"]), "tp_pct": pct(sd["target"]),
+                "risk_reward": round(abs(sd["target"] - sd["entry"]) / risk, 2) if risk else None,
+                "atr_pct": None, "manual": False, "outcome": sd["outcome"], "outcome_at": sd["exit_at"],
+                "result_r": sd["result_r"]}
+    return {"method": "sd", "sd": sd, "trade_type": "swing", "type_reason": sd.get("message"),
+            "stop_loss": None, "take_profit": None, "sl_pct": None, "tp_pct": None, "risk_reward": None,
+            "atr_pct": None, "manual": False, "outcome": None, "outcome_at": None, "result_r": None}
 
 
 def summary(db: Session) -> dict:
@@ -400,6 +453,7 @@ def summary(db: Session) -> dict:
             plans[r.id] = plan_for(db, r)
         check_plan(db, r, plans[r.id], now)
     db.commit()
+    rows = {r.id: _sd_fields(sd_for(db, r), _plan_json(r, plans.get(r.id))) for r in recs[:200]}
     by_grade = []
     for g in GRADED:
         rs = [r for r in recs if r.grade == g]
@@ -409,23 +463,27 @@ def summary(db: Session) -> dict:
             row[f"n_{days}d"] = len(vals)
             row[f"hit_rate_{days}d"] = round(100 * sum(v > 0 for v in vals) / len(vals), 1) if vals else None
             row[f"avg_move_{days}d"] = round(sum(vals) / len(vals), 3) if vals else None
-        ps = [plans[r.id] for r in rs if r.id in plans and plans[r.id].outcome]
-        row["targets_hit"] = sum(p.outcome == "target" for p in ps)
-        row["stopped_out"] = sum(p.outcome == "stop" for p in ps)
-        row["avg_r"] = round(sum(p.result_r or 0 for p in ps) / len(ps), 2) if ps else None
+        ps = [rows[r.id] for r in rs if r.id in rows and rows[r.id].get("outcome")]
+        row["targets_hit"] = sum(p["outcome"] == "target" for p in ps)
+        row["stopped_out"] = sum(p["outcome"] == "stop" for p in ps)
+        row["avg_r"] = round(sum(p.get("result_r") or 0 for p in ps) / len(ps), 2) if ps else None
+        row["sd_trades"] = sum(1 for r in rs if r.id in rows and (rows[r.id].get("sd") or {}).get("state") in ("done", "open"))
         by_grade.append(row)
     recent = [{"id": r.id, "asset": r.asset, "direction": r.direction, "grade": r.grade,
                "confluence": r.confluence, "opened_at": _aware(r.opened_at).isoformat(), "entry_price": r.entry_price,
                "ret_1d": r.ret_1d, "ret_5d": r.ret_5d, "ret_20d": r.ret_20d,
-               "open": r.superseded_at is None, "note": r.note} | _plan_json(r, plans.get(r.id)) for r in recs[:200]]
+               "open": r.superseded_at is None, "note": r.note} | rows[r.id] for r in recs[:200]]
     evaluated = sum(1 for r in recs if r.ret_5d is not None)
     return {"by_grade": by_grade, "recent": recent, "total_signals": len(recs), "evaluated_5d": evaluated,
             "enough_data": evaluated >= 30,
             "note": "A grade is only worth trusting once it has 30+ evaluated calls with a hit rate clearly "
                     "above 50% and a positive average move. Moves are measured in the call's direction, "
                     "before costs.",
-            "plan_note": "Stop loss and take profit are sized from the pair's average daily range over the last 14 days "
-                         "(true range from FMP's daily highs and lows where available): "
-                         "swing trades 1.5x for the stop and 3x for the target (held up to 20 days), day trades 0.5x and 1x "
-                         "(closed the same day). Both aim for 1 : 2 risk-reward. Results are in R: +2R = made twice the risk, "
-                         "−1R = stopped out."}
+            "plan_note": "Entries, stops and targets come from your supply & demand strategy (USTEC 4-hour Rules of "
+                         "Engagement) run on each pair's 4-hour candles: a fresh zone in the call's direction and with the "
+                         "200 EMA, graded A+ (liquidity sweep) or B (VWAP), entered on a 4-hour close back out of the zone, "
+                         "stop beyond the zone (at least 1 ATR), target 2R, time stop 100 candles. A call with no setup "
+                         "while it stood is not traded. Results are in R: +2R = made twice the risk, −1R = stopped out. "
+                         "Your rules note they were proven on USTEC and gold: treat forex results as a live test.",
+            "fallback_note": "Calls marked 'volatility plan' have no 4-hour candles yet (FMP price bars): their levels "
+                             "are sized from the average daily range instead."}

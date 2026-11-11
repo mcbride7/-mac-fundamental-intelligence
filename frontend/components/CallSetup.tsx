@@ -14,7 +14,121 @@ const GUTTER = "5.25rem"; // right-hand column for the level labels
 
 const OUTCOME: Record<string, string> = { target: "Target hit", stop: "Stopped out", expired: "Expired" };
 
+/** 4-hour candles with the strategy's zone, entry, stop, target, the 200 EMA and the moment the call was given. */
+function CandleChart({ d }: { d: any }) {
+  const c = d.call;
+  const sd = c.sd || {};
+  const k: any[] = d.candles;
+  const [hover, setHover] = useState<number | null>(null);
+  const n = k.length;
+  const times = k.map((b) => t(b.t));
+  const idx = (iso?: string | null) => {
+    if (!iso) return n - 1;
+    const ms = t(iso);
+    for (let i = 0; i < n; i++) if (times[i] + 4 * 3600e3 > ms) return i;
+    return n - 1;
+  };
+  const traded = sd.state === "done" || sd.state === "open";
+  const levels = traded ? [sd.entry, sd.stop, sd.target] : [];
+  const zones: { a: number; b: number; from: number; to: number; kind: string }[] = [];
+  if (sd.zone) zones.push({ a: sd.zone.near, b: sd.zone.far, from: idx(sd.zone.from), to: idx(sd.exit_at), kind: sd.zone.kind });
+  for (const z of sd.zones || []) zones.push({ a: z.near, b: z.far, from: idx(z.created), to: n - 1, kind: c.direction === "LONG" ? "demand" : "supply" });
+  const all = k.flatMap((b) => [b.h, b.l]).concat(levels, zones.flatMap((z) => [z.a, z.b]));
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const pad = (hi - lo || hi * 0.002) * 0.06; lo -= pad; hi += pad;
+  const W = 1000, cw = W / n;
+  const X = (i: number) => (i + 0.5) * cw;
+  const Y = (v: number) => (1 - (v - lo) / (hi - lo)) * 100;
+  const ein = traded ? idx(sd.entry_at) : null, eout = traded && sd.exit_at ? idx(sd.exit_at) : n - 1;
+  const opened = idx(c.opened_at);
+  const emaPath = k.map((b, i) => (b.ema == null ? null : `${X(i).toFixed(1)},${Y(b.ema).toFixed(2)}`)).filter(Boolean).join(" ");
+  const h = hover == null ? null : k[hover];
+  const labels = (traded ? [
+    { v: sd.target, text: `TP ${num(sd.target, dec(sd.target))}`, cls: "border-up text-up" },
+    { v: sd.entry, text: `In ${num(sd.entry, dec(sd.entry))}`, cls: "border-verify text-verify" },
+    { v: sd.stop, text: `SL ${num(sd.stop, dec(sd.stop))}`, cls: "border-bear-soft text-bear-soft" },
+  ] : []).map((l) => ({ ...l, y: Y(l.v) })).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) if (labels[i].y - labels[i - 1].y < 9) labels[i].y = labels[i - 1].y + 9;
+  const ticks = [0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1];
+  const zoneFill = (kind: string) => (kind === "demand" ? "var(--color-up)" : "var(--color-bear-soft)");
+  return (
+    <div>
+      <div className="relative h-72 select-none sm:h-80" style={{ paddingRight: GUTTER }}>
+        <div className="relative h-full">
+          <svg viewBox={`0 0 ${W} 100`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible"
+            role="img" aria-label={`4-hour candlestick chart of ${pair(c.asset)}`}
+            onMouseLeave={() => setHover(null)}
+            onMouseMove={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setHover(Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width) * n))));
+            }}>
+            {zones.map((z, i) => (
+              <rect key={i} x={z.from * cw} width={Math.max(cw, (z.to - z.from + 1) * cw)} y={Math.min(Y(z.a), Y(z.b))}
+                height={Math.max(0.6, Math.abs(Y(z.a) - Y(z.b)))} fill={zoneFill(z.kind)} opacity={0.18}
+                stroke={zoneFill(z.kind)} strokeOpacity={0.6} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            ))}
+            {traded && ein != null && <>
+              <rect x={X(ein)} width={Math.max(cw, X(eout) - X(ein))} y={Math.min(Y(sd.entry), Y(sd.target))} height={Math.abs(Y(sd.entry) - Y(sd.target))} fill="var(--color-up)" opacity={0.08} />
+              <rect x={X(ein)} width={Math.max(cw, X(eout) - X(ein))} y={Math.min(Y(sd.entry), Y(sd.stop))} height={Math.abs(Y(sd.entry) - Y(sd.stop))} fill="var(--color-bear-soft)" opacity={0.08} />
+              {[[sd.target, "var(--color-up)"], [sd.stop, "var(--color-bear-soft)"], [sd.entry, "var(--color-verify)"]].map(([v, col]) => (
+                <line key={col as string} x1={X(ein)} x2={X(eout)} y1={Y(v as number)} y2={Y(v as number)} stroke={col as string}
+                  strokeWidth={1.2} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />))}
+            </>}
+            {emaPath && <polyline points={emaPath} fill="none" stroke="var(--color-amber)" strokeWidth={1.2} strokeOpacity={0.7} vectorEffect="non-scaling-stroke" />}
+            <line x1={X(opened)} x2={X(opened)} y1={0} y2={100} stroke="var(--color-verify)" strokeWidth={1} strokeDasharray="2 3" vectorEffect="non-scaling-stroke" />
+            {k.map((b, i) => {
+              const up = b.c >= b.o, col = up ? "var(--color-up)" : "var(--color-bear-soft)";
+              return (
+                <g key={b.t}>
+                  <line x1={X(i)} x2={X(i)} y1={Y(b.h)} y2={Y(b.l)} stroke={col} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                  <rect x={X(i) - cw * 0.32} width={cw * 0.64} y={Math.min(Y(b.o), Y(b.c))} height={Math.max(0.35, Math.abs(Y(b.o) - Y(b.c)))}
+                    fill={up ? "var(--color-panel)" : col} stroke={col} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                </g>
+              );
+            })}
+            {hover != null && <line x1={X(hover)} x2={X(hover)} y1={0} y2={100} stroke="var(--color-muted)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
+          </svg>
+          {traded && ein != null && <span className="pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-verify"
+            style={{ left: `${(X(ein) / W) * 100}%`, top: `${Y(sd.entry)}%` }} />}
+          {traded && sd.exit != null && sd.exit_at && <span className={`pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink ${sd.outcome === "target" ? "bg-up" : sd.outcome === "stop" ? "bg-bear-soft" : "bg-muted"}`}
+            style={{ left: `${(X(eout) / W) * 100}%`, top: `${Y(sd.exit)}%` }} />}
+          <span className="pointer-events-none absolute top-1 -translate-x-1/2 whitespace-nowrap rounded border border-verify bg-ink px-1.5 text-[11px] text-verify"
+            style={{ left: `${Math.min(92, Math.max(8, (X(opened) / W) * 100))}%` }}>Call: {c.direction === "LONG" ? "Buy" : "Sell"}</span>
+          {h && (
+            <span className="pointer-events-none absolute bottom-1 rounded border border-line bg-ink/90 px-2 py-0.5 text-xs tabular-nums"
+              style={hover! / n > 0.6 ? { right: `${(1 - hover! / n) * 100 + 1}%` } : { left: `${(hover! / n) * 100 + 1}%` }}>
+              {dateTime(h.t)} · O {num(h.o, dec(h.o))} H {num(h.h, dec(h.h))} L {num(h.l, dec(h.l))} C {num(h.c, dec(h.c))}
+            </span>
+          )}
+        </div>
+        {labels.map((l) => (
+          <span key={l.text} className={`pointer-events-none absolute right-0 -translate-y-1/2 whitespace-nowrap rounded border bg-ink px-1 text-[11px] font-medium tabular-nums ${l.cls}`} style={{ top: `${Math.min(96, Math.max(4, l.y))}%` }}>{l.text}</span>
+        ))}
+      </div>
+      <div className="relative mt-1 h-4 text-[11px] text-muted" style={{ marginRight: GUTTER }}>
+        {ticks.filter((v, i, a) => a.indexOf(v) === i).map((i) => <span key={i} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${Math.min(95, Math.max(5, (X(i) / W) * 100))}%` }}>{shortDate(times[i])}</span>)}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+        <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-up/40" />Demand zone</span>
+        <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-bear-soft/40" />Supply zone</span>
+        <span><span className="mr-1 inline-block h-0.5 w-4 bg-amber align-middle" />200 EMA</span>
+        <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-verify align-middle" />Entry</span>
+        {sd.outcome && <span><span className={`mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle ${sd.outcome === "target" ? "bg-up" : sd.outcome === "stop" ? "bg-bear-soft" : "bg-muted"}`} />{OUTCOME[sd.outcome]}{sd.exit_at ? ` · ${dateTime(sd.exit_at)}` : ""}{sd.result_r != null ? ` · ${signed(sd.result_r, 1)}R` : ""}</span>}
+      </div>
+      <p className="mt-2 text-sm">
+        {traded ? <>Grade <b>{sd.grade}</b> {sd.zone?.kind} zone ({sd.pattern}) · entered {dateTime(sd.entry_at)} on a 4-hour close back out of the zone
+          {sd.state === "open" ? " · still running" : ""}</> : <span className="text-muted">{sd.message}</span>}
+      </p>
+    </div>
+  );
+}
+
 function SetupChart({ d }: { d: any }) {
+  return d.candles?.length >= 5 ? <CandleChart d={d} /> : <LineChart d={d} />;
+}
+
+/** Fallback before 4-hour candles exist: the stored price path. */
+function LineChart({ d }: { d: any }) {
   const c = d.call;
   const pts: [number, number][] = useMemo(() => d.prices.map(([ts, px]: [string, number]) => [t(ts), px]), [d.prices]);
   const [hover, setHover] = useState<number | null>(null);
@@ -180,7 +294,7 @@ export default function CallSetup({ id }: { id: number }) {
             <h3 className="text-sm font-semibold">
               {data.call.direction === "LONG" ? "Buy" : "Sell"} {pair(data.call.asset)} · given {dateTime(data.call.opened_at)}
             </h3>
-            <span className="text-xs text-muted">{data.call.trade_type === "day" ? "Day trade" : "Swing"}{data.call.risk_reward ? ` · 1:${data.call.risk_reward}` : ""}</span>
+            <span className="text-xs text-muted">{data.call.method === "sd" ? "Your S&D strategy · 4-hour swing" : data.call.trade_type === "day" ? "Day trade" : "Swing"}{data.call.risk_reward ? ` · 1:${data.call.risk_reward}` : ""}</span>
           </div>
           <SetupChart d={data} />
           <div className="mt-5 border-t border-line pt-4"><Snapshot s={data.setup} call={data.call} /></div>

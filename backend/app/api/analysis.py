@@ -57,6 +57,27 @@ def track_record_setup(signal_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, str(e))
 
 
+@router.get("/track-record/{signal_id}/chart")
+def track_record_chart(signal_id: int, db: Session = Depends(get_db)):
+    """4-hour candles for one call with the strategy's zone, entry, stop and target (or the zones it's waiting on)."""
+    from datetime import datetime
+
+    from app.models.track import SignalRecord
+    from app.services import track_record
+    from app.strategy import sd_live
+
+    rec = db.get(SignalRecord, signal_id)
+    if rec is None:
+        raise HTTPException(404, "No such call")
+    sd = track_record.sd_for(db, rec)
+    around = end = None
+    if sd and sd.get("zone"):
+        around = datetime.fromisoformat(sd["zone"]["from"])
+        end = datetime.fromisoformat(sd["exit_at"]) if sd.get("exit_at") else None
+    return {"asset": rec.asset, "direction": rec.direction, "opened_at": track_record._aware(rec.opened_at).isoformat(),
+            "call_price": rec.entry_price, "sd": sd, "candles": sd_live.chart(db, rec.asset, around, end)}
+
+
 @router.patch("/track-record/{signal_id}")
 def track_record_edit(signal_id: int, body: dict, db: Session = Depends(get_db)):
     """Change a call's trade type (swing / day), stop loss or take profit."""

@@ -13,3 +13,5 @@ pytesseract>=0.3.10
 celery[redis]>=5.4
 redis>=5.0
 boto3>=1.34          # only needed when S3_BUCKET is set
+numpy>=1.24          # supply & demand strategy engine
+pandas>=2.0

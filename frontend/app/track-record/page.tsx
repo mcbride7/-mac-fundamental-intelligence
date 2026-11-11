@@ -133,19 +133,24 @@ export default function TrackRecord() {
                         <tr onClick={() => setShowing(showing === r.id ? null : r.id)} className={`cursor-pointer ${showing === r.id ? "bg-panel-2/60" : ""}`} title="Click to see the setup">
                           <td className="whitespace-nowrap">{dateTime(r.opened_at)}</td><td>{pair(r.asset)}</td>
                           <td>{r.direction === "LONG" ? "Buy" : "Sell"}</td><td><GradeBadge grade={r.grade} /></td>
-                          <td><TypeBadge t={r.trade_type} why={r.type_reason} /></td>
-                          <td>{num(r.entry_price, dec(r.entry_price))}</td>
+                          <td>{r.method === "sd"
+                            ? <span title={r.type_reason} className="cursor-help whitespace-nowrap rounded bg-verify/20 px-2 py-0.5 text-xs font-medium text-verify">S&amp;D swing{r.sd?.grade ? ` · ${r.sd.grade}` : ""}</span>
+                            : <TypeBadge t={r.trade_type} why={r.type_reason} />}</td>
+                          <td className="whitespace-nowrap">{r.method === "sd" && r.sd?.entry != null
+                            ? <span title={`Call given at ${num(r.entry_price, dec(r.entry_price))}`}>{num(r.sd.entry, dec(r.sd.entry))} <span className="text-xs text-muted">{dateTime(r.sd.entry_at)}</span></span>
+                            : r.method === "sd" ? <span className="text-xs text-muted" title={r.sd?.message}>{r.sd?.state === "none" ? "No setup" : "Waiting for setup"}</span>
+                            : num(r.entry_price, dec(r.entry_price))}</td>
                           <td className="whitespace-nowrap">{r.stop_loss == null ? "—" : <>{num(r.stop_loss, dec(r.stop_loss))} <span className="text-xs text-muted">({r.sl_pct}%)</span></>}</td>
                           <td className="whitespace-nowrap">{r.take_profit == null ? "—" : <>{num(r.take_profit, dec(r.take_profit))} <span className="text-xs text-muted">({r.tp_pct}%{r.risk_reward ? ` · 1:${r.risk_reward}` : ""})</span></>}</td>
                           <td className="whitespace-nowrap">{r.outcome ? <span title={r.outcome_at ? dateTime(r.outcome_at) : undefined} className={`rounded px-2 py-0.5 text-xs font-semibold ${OUTCOME[r.outcome][1]}`}>{OUTCOME[r.outcome][0]} {r.result_r != null && `${signed(r.result_r, 1)}R`}</span>
-                            : r.stop_loss != null ? <span className="text-xs text-muted">Running</span> : <span className="text-muted">—</span>}</td>
+                            : r.stop_loss != null ? <span className="text-xs text-muted">Running</span> : r.method === "sd" && r.sd?.state === "none" ? <span className="text-xs text-muted">Not traded</span> : <span className="text-muted">—</span>}</td>
                           <td className={moveCls(r.ret_1d)}>{signed(r.ret_1d, 2, "%")}</td>
                           <td className={moveCls(r.ret_5d)}>{signed(r.ret_5d, 2, "%")}</td>
                           <td className={moveCls(r.ret_20d)}>{signed(r.ret_20d, 2, "%")}</td>
                           <td className="text-xs text-muted">{r.open ? "current" : "replaced"}{r.manual ? " · levels edited" : ""}{r.note ? ` · ${r.note}` : ""}</td>
                           <td><button onClick={(e) => { e.stopPropagation(); setShowing(showing === r.id ? null : r.id); }} aria-expanded={showing === r.id}
                             className={`whitespace-nowrap rounded border px-2 py-0.5 text-xs ${showing === r.id ? "border-verify text-verify" : "border-line hover:bg-panel-2"}`}>{showing === r.id ? "Hide setup" : "Setup"}</button></td>
-                          <td><button onClick={(e) => { e.stopPropagation(); setEditing(editing === r.id ? null : r.id); }} className="rounded border border-line px-2 py-0.5 text-xs hover:bg-panel-2">Edit</button></td>
+                          <td>{r.method !== "sd" && <button onClick={(e) => { e.stopPropagation(); setEditing(editing === r.id ? null : r.id); }} className="rounded border border-line px-2 py-0.5 text-xs hover:bg-panel-2">Edit</button>}</td>
                         </tr>
                         {showing === r.id && <tr><td colSpan={15} style={{ padding: 0 }}><div className="sticky left-0 max-w-[1000px] p-3" style={{ width: "min(100%, calc(100vw - 4.5rem))" }}><CallSetup id={r.id} /></div></td></tr>}
                         {editing === r.id && <tr><td colSpan={15}><div className="sticky left-0 w-fit max-w-[85vw]"><PlanEditor r={r} onDone={() => { setEditing(null); reload(); }} /></div></td></tr>}
@@ -154,7 +159,7 @@ export default function TrackRecord() {
                   </table>
                 </div>
               )}
-              <p className="mt-3 text-xs text-muted">{data.plan_note} Click a call to see its chart and the setup behind it. Hover a trade type to see why it was chosen. Edit a row to switch swing / day or set your own levels; the result is re-checked.</p>
+              <p className="mt-3 text-xs text-muted">{data.plan_note} Click a call to see its 4-hour candle chart with the zone, entry, stop and target. {data.fallback_note}</p>
             </Panel>
           </div>
         </>
