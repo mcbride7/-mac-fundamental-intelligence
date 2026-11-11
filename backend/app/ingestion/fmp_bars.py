@@ -115,13 +115,22 @@ def run_fmp_bars(db: Session, src: Source):
     return (n, ("Some symbols missing: " + "; ".join(failed))[:300]) if failed else n
 
 
-def bars(db: Session, symbol: str, interval: str, start: datetime | None = None, end: datetime | None = None) -> list[PriceBar]:
+def _utc(t: datetime) -> datetime:
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def bars(db: Session, symbol: str, interval: str, start: datetime | None = None, end: datetime | None = None) -> list:
+    """Bars in time order, with times always in UTC (some databases hand them back without a time zone)."""
     q = select(PriceBar).where(PriceBar.symbol == symbol, PriceBar.interval == interval)
     if start is not None:
         q = q.where(PriceBar.ts >= start)
     if end is not None:
         q = q.where(PriceBar.ts <= end)
-    return list(db.scalars(q.order_by(PriceBar.ts)))
+    from types import SimpleNamespace
+
+    # read-only copies, so normalising the time never writes back to the database
+    return [SimpleNamespace(symbol=b.symbol, interval=b.interval, ts=_utc(b.ts), open=b.open, high=b.high, low=b.low,
+                            close=b.close) for b in db.scalars(q.order_by(PriceBar.ts))]
 
 
 def atr_pct(db: Session, symbol: str, at: datetime, days: int = 14) -> float | None:
