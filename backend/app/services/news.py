@@ -325,6 +325,50 @@ def fetch_finnhub() -> list[dict]:
     return out
 
 
+FMP_NEWS = (("news/forex-latest", "forex"), ("news/general-latest", "general"), ("fmp-articles", "FMP articles"))
+
+
+def fetch_fmp() -> tuple[list[dict], list[str]]:
+    """FMP news (forex, general market, and FMP's own articles). Each list is tried separately; one not on your
+    plan is noted and skipped. Shown under the source "FMP", with the original publisher at the start of the summary."""
+    from zoneinfo import ZoneInfo
+
+    import requests
+
+    ny = ZoneInfo("America/New_York")  # FMP's timestamps are New York time
+    out, missing = [], []
+    for path, label in FMP_NEWS:
+        try:
+            r = requests.get(f"https://financialmodelingprep.com/stable/{path}",
+                             params={"page": 0, "limit": 50, "apikey": settings.fmp_api_key}, timeout=30)
+            body = r.json()
+        except Exception as exc:
+            missing.append(f"{label}: {exc.__class__.__name__}")
+            continue
+        if isinstance(body, dict) or r.status_code >= 400:
+            msg = (body.get("Error Message") or body.get("message") or "") if isinstance(body, dict) else ""
+            if r.status_code == 401 or ("invalid" in msg.lower() and "key" in msg.lower()):
+                raise SourceUnavailable("FMP rejected the API key: check FMP_API_KEY in Railway")
+            missing.append(f"{label}: {'not on your FMP plan' if r.status_code in (402, 403) or 'subscri' in msg.lower() or 'restricted' in msg.lower() else (msg or r.status_code)}")
+            continue
+        for it in body or []:
+            if not isinstance(it, dict) or not it.get("title"):
+                continue
+            raw = str(it.get("publishedDate") or it.get("date") or "")
+            try:
+                pub = datetime.fromisoformat(raw.replace(" ", "T")[:19]).replace(tzinfo=ny).astimezone(timezone.utc)
+            except ValueError:
+                pub = None
+            publisher = it.get("publisher") or it.get("site") or it.get("author") or ""
+            text = clean(it.get("text") or it.get("content"))
+            out.append({"title": clean(it["title"], 500), "link": it.get("url") or it.get("link") or "",
+                        "summary": (f"{publisher}: {text}" if publisher and text else text or publisher) or None,
+                        "source": "FMP", "published": pub})
+    if not out and missing:
+        raise SourceUnavailable("; ".join(missing))
+    return out, missing
+
+
 def store(db: Session, items: list[dict], feed: str, source_name: str, kind: str, base_ccys: list[str]) -> int:
     cutoff = utcnow() - timedelta(days=KEEP_DAYS)
     seen = set(db.scalars(select(NewsArticle.uid).where(NewsArticle.feed == feed)))
@@ -374,6 +418,19 @@ def run_news(db: Session, src: Source) -> int:
             status["finnhub"] = {"name": "Finnhub", "ok": False, "error": f"{exc.__class__.__name__}: {exc}"[:200]}
     else:
         status["finnhub"] = {"name": "Finnhub", "ok": False, "error": "Not set up: add FINNHUB_API_KEY (free key)"}
+    if settings.fmp_api_key:
+        try:
+            items, missing = fetch_fmp()
+            added = store(db, items, "fmp", "FMP", "news", [])
+            db.commit()
+            status["fmp"] = {"name": "FMP", "ok": True, "added": added, "seen": len(items),
+                             **({"note": "Skipped: " + "; ".join(missing)} if missing else {})}
+            total += added
+        except Exception as exc:
+            db.rollback()
+            status["fmp"] = {"name": "FMP", "ok": False, "error": f"{exc.__class__.__name__}: {exc}"[:200]}
+    else:
+        status["fmp"] = {"name": "FMP", "ok": False, "error": "Not set up: add FMP_API_KEY"}
     db.execute(delete(NewsArticle).where(NewsArticle.published_at < utcnow() - timedelta(days=KEEP_DAYS)))
     src = db.get(Source, src.id)
     src.config = {**(src.config or {}), "feeds": status, "last_run": utcnow().isoformat()}
