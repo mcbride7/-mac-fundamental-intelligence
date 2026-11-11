@@ -161,7 +161,16 @@ def _series(db: Session, asset: str) -> dict:
 
 
 def typical_move_pct(db: Session, asset: str, at: datetime) -> float | None:
-    """Average absolute daily % move over the last 14 days, x1.2 (close-to-close understates the true daily range)."""
+    """The true average daily range (ATR, 14 days) from FMP's daily highs and lows when stored; otherwise the
+    average absolute daily % move over the last 14 days x1.2 (close-to-close understates the true daily range)."""
+    from app.ingestion.fmp_bars import atr_pct
+
+    try:
+        atr = atr_pct(db, asset, at, ATR_DAYS)
+    except Exception:
+        atr = None
+    if atr:
+        return atr
     closes = [p for _, p in _daily_closes(db, asset, end=at) if p][-(ATR_DAYS + 1):]
     if len(closes) < 8:
         return None
@@ -215,9 +224,24 @@ def plan_for(db: Session, rec: SignalRecord) -> SignalPlan:
     return plan
 
 
+def _ranges_between(db: Session, asset: str, start: datetime, end: datetime) -> list[tuple[datetime, float, float, float]]:
+    """(time, low, high, close) after the call: FMP hourly bars when they cover the period, else daily bars,
+    else stored prices (where low = high = the price)."""
+    from app.ingestion.fmp_bars import bars
+
+    for interval, step in (("1hour", timedelta(hours=1)), ("1day", timedelta(days=1))):
+        try:
+            got = [b for b in bars(db, asset, interval, start, end) if b.ts >= start]
+        except Exception:
+            got = []
+        if got and got[0].ts <= start + (timedelta(hours=3) if interval == "1hour" else timedelta(days=4)):
+            return [(b.ts + step, b.low, b.high, b.close) for b in got]
+    return [(ts, px, px, px) for ts, px in _prices_between(db, asset, start, end)]
+
+
 def check_plan(db: Session, rec: SignalRecord, plan: SignalPlan, now: datetime) -> None:
-    """Which came first after the call: the take profit or the stop loss? Uses stored prices (closes when only
-    daily data exist, so a level touched intraday but not closed beyond may be missed)."""
+    """Which came first after the call: the take profit or the stop loss? Checks each bar's real high and low
+    (FMP hourly bars) where stored; if both levels fall inside one bar, the stop is assumed to come first."""
     if plan.outcome or not rec.entry_price or plan.stop_loss is None or plan.take_profit is None:
         return
     opened = _aware(rec.opened_at)
@@ -228,15 +252,17 @@ def check_plan(db: Session, rec: SignalRecord, plan: SignalPlan, now: datetime) 
     long = rec.direction == "LONG"
     risk = abs(rec.entry_price - plan.stop_loss) or None
     last = None
-    for ts, px in _prices_between(db, rec.asset, opened, min(end, now)):
-        last = (ts, px)
-        if (px >= plan.take_profit) if long else (px <= plan.take_profit):
-            plan.outcome, plan.outcome_at = "target", ts
-            plan.result_r = round(abs(plan.take_profit - rec.entry_price) / risk, 2) if risk else None
-            return
-        if (px <= plan.stop_loss) if long else (px >= plan.stop_loss):
+    for ts, lo, hi, close in _ranges_between(db, rec.asset, opened, min(end, now)):
+        last = (ts, close)
+        stop_hit = (lo <= plan.stop_loss) if long else (hi >= plan.stop_loss)
+        target_hit = (hi >= plan.take_profit) if long else (lo <= plan.take_profit)
+        if stop_hit:  # checked first: when both are inside one bar we can't tell the order, so assume the worse
             plan.outcome, plan.outcome_at = "stop", ts
             plan.result_r = -1.0
+            return
+        if target_hit:
+            plan.outcome, plan.outcome_at = "target", ts
+            plan.result_r = round(abs(plan.take_profit - rec.entry_price) / risk, 2) if risk else None
             return
     if now >= end and last is not None and risk:
         plan.outcome, plan.outcome_at = "expired", last[0]
@@ -398,7 +424,8 @@ def summary(db: Session) -> dict:
             "note": "A grade is only worth trusting once it has 30+ evaluated calls with a hit rate clearly "
                     "above 50% and a positive average move. Moves are measured in the call's direction, "
                     "before costs.",
-            "plan_note": "Stop loss and take profit are sized from the pair's typical daily move over the last 14 days: "
+            "plan_note": "Stop loss and take profit are sized from the pair's average daily range over the last 14 days "
+                         "(true range from FMP's daily highs and lows where available): "
                          "swing trades 1.5x for the stop and 3x for the target (held up to 20 days), day trades 0.5x and 1x "
                          "(closed the same day). Both aim for 1 : 2 risk-reward. Results are in R: +2R = made twice the risk, "
                          "−1R = stopped out."}

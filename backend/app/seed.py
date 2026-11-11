@@ -51,6 +51,8 @@ SOURCES = [
     ("statcan", "Statistics Canada", "1", "official", "https://www150.statcan.gc.ca", "CA", None, 1440, {}),
     ("abs", "Australian Bureau of Statistics", "1", "official", "https://www.abs.gov.au", "AU", None, 1440, {}),
     ("finnhub", "Finnhub economic calendar", "2", "api", "https://finnhub.io", None, None, 360, {}),
+    ("fmp_bars", "FMP price bars: daily and hourly highs / lows for forex and metals (Track record checks)", "2", "api",
+     "https://financialmodelingprep.com", None, None, 120, {}),
     ("fmp", "FMP economic calendar (backup: fills gaps left by Forex Factory and Finnhub)", "2", "api",
      "https://financialmodelingprep.com", None, None, 480, {}),
     ("forexfactory", "Forex Factory calendar (forecasts)", "2", "api", "https://www.forexfactory.com/calendar",

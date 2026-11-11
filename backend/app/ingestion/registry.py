@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.ingestion import central_banks, forexfactory, fred, markets, official, yields
+from app.ingestion import central_banks, fmp_bars, forexfactory, fred, markets, official, yields
 from app.ingestion.base import run_source
 from app.services import cot, equities, intermarket_data, news, pressers, retail, risk_sentiment, seasonality
 
@@ -16,6 +16,7 @@ JOBS = {
     "twelvedata": markets.run_prices,
     "finnhub": markets.run_finnhub,
     "fmp": markets.run_fmp,
+    "fmp_bars": fmp_bars.run_fmp_bars,
     "forexfactory": forexfactory.run_forexfactory,
     "eurostat": official.runner("eurostat"),
     "ons": official.runner("ons"),

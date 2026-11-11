@@ -144,3 +144,24 @@ def test_setup_detail_chart_and_snapshot(client, db):
     r = client.get(f"/api/track-record/{rec.id}/setup")
     assert r.status_code == 200 and r.json()["setup"]["grade"] == "A"
     assert client.get("/api/track-record/999999/setup").status_code == 404
+
+
+def test_stop_and_target_use_hourly_highs_and_lows(db):
+    """A target touched intraday (high above it) counts, even when no close went beyond it."""
+    from app.models.track import PriceBar
+    from app.services import track_record as tr
+
+    for i in range(16):  # daily bars: range 1.095-1.105 -> ATR ~0.9%
+        db.add(PriceBar(symbol="EURUSD", interval="1day", ts=T0 - timedelta(days=16 - i), open=1.1, high=1.105, low=1.095, close=1.1))
+    _price(db, "EURUSD", T0 - timedelta(minutes=5), 1.1)
+    db.commit()
+    rec = tr.record(db, "EURUSD", "A", "LONG", 62.0, now=T0)
+    db.commit()
+    plan = tr.plan_for(db, rec)
+    assert 0.85 < plan.atr_pct < 0.95  # true range, not close-to-close
+    for h in range(1, 6):  # hourly bars after the call; bar 4 spikes through the target, closes back below
+        hi = plan.take_profit + 0.001 if h == 4 else 1.101
+        db.add(PriceBar(symbol="EURUSD", interval="1hour", ts=T0 + timedelta(hours=h - 1), open=1.1, high=hi, low=1.099, close=1.1))
+    db.commit()
+    tr.check_plan(db, rec, plan, T0 + timedelta(hours=6))
+    assert plan.outcome == "target" and plan.outcome_at == T0 + timedelta(hours=4)

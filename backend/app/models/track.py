@@ -45,3 +45,17 @@ class SignalPlan(Base):
     outcome: Mapped[str | None] = mapped_column(String(16))  # target | stop | expired
     outcome_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result_r: Mapped[float | None] = mapped_column(Float)  # +2 = made twice the risk, -1 = lost the risk
+
+
+class PriceBar(Base):
+    """Open / high / low / close bars (FMP): lets stops and targets be checked against each bar's real range."""
+
+    __tablename__ = "price_bars"
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    interval: Mapped[str] = mapped_column(String(8), primary_key=True)  # 1day | 1hour
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)  # bar start, UTC
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16), default="fmp")

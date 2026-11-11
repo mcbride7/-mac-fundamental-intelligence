@@ -62,7 +62,7 @@ from app.models.system import (  # noqa: F401
     UserTrustSettings,
     Watchlist,
 )
-from app.models.track import SignalPlan, SignalRecord  # noqa: F401,E402
+from app.models.track import PriceBar, SignalPlan, SignalRecord  # noqa: F401,E402
 from app.models.notify import AlertDelivery, Heartbeat  # noqa: F401,E402
 from app.models.overrides import EventOverride  # noqa: F401,E402
 from app.models.risk import RiskSentiment  # noqa: F401,E402
