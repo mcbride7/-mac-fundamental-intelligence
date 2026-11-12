@@ -172,13 +172,15 @@ def geopolitics(arts: list) -> dict:
                     "No clear direction" if total else "Quiet"}
 
 
-HAWKISH = [r"hawkish", r"rate hikes?", r"hikes? rates?", r"hiking", r"raises? (interest )?rates?",
+HAWKISH = [r"hawkish", r"rate hikes?", r"hikes? rates?",
+           r"(raises?|raised|hikes?|hiked|lifts?|lifted) (the |its )?(repo|policy|benchmark|key|cash|bank|official|interest) rates?", r"hiking", r"raises? (interest )?rates?",
            r"raised (interest )?rates?", r"rate increase", r"tighten(ing|s|ed)?", r"higher for longer",
            r"sticky inflation", r"inflation (rises|rose|accelerat\w*|jumps|jumped|heats? up|surges?)",
            r"hot(ter)?(-than-expected)? (inflation|cpi)", r"stronger[- ]than[- ]expected", r"beats? (expectations|forecasts?)",
            r"strong (jobs|payrolls|data)", r"no (rush|hurry) to cut", r"fewer (rate )?cuts",
            r"(another|one more|further|a) hike", r"hikes? (in|at|this|next) ", r"push(es|ed)? back on (rate )?cuts"]
-DOVISH = [r"dovish", r"rate cuts?", r"cuts? (interest )?rates?", r"cutting", r"eas(ing|es|ed) (policy|rates)",
+DOVISH = [r"dovish", r"rate cuts?", r"cuts? (interest )?rates?",
+          r"(cuts?|lowers?|lowered|reduces?|reduced|trims?|trimmed) (the |its )?(repo|policy|benchmark|key|cash|bank|official|interest) rates?", r"cutting", r"eas(ing|es|ed) (policy|rates)",
           r"monetary easing", r"lowers? (interest )?rates?", r"lowered (interest )?rates?", r"rate reduction",
           r"slowdown", r"recession", r"contraction", r"weaker[- ]than[- ]expected", r"miss(es|ed)? (expectations|forecasts?)",
           r"disinflation", r"(inflation|prices) (cools?|cooled|eases?|eased|slows?|slowed|falls?|fell)",
@@ -190,6 +192,113 @@ RISK_ON = [r"risk[- ]on", r"rall(y|ies|ied)", r"record highs?", r"surges?", r"op
            r"trade deal", r"deal reached", r"risk appetite", r"soars?"]
 HIGH = [r"rate decision", r"interest rate decision", r"monetary policy statement", r"\bfomc\b", r"\bcpi\b",
         r"nonfarm|non-farm", r"\bgdp\b", r"emergency", r"press conference"]
+
+
+# --------------------------------------------------------------------------- per-currency scoring
+# A headline's wording is credited to the currency it is ABOUT, not to every currency it names:
+#  - rate wording (hike / cut / hawkish / dovish) goes to the nearest central bank or currency named;
+#  - move wording ("dollar gains", "gold slips", "EUR/USD falls") goes to that asset (a pair: base one way,
+#    quote the other);
+#  - gold and oil aren't hawkish or dovish: US rate wording counts against gold when gold is in the headline
+#    (higher US rates / a stronger dollar usually weigh on gold).
+BANK_WORDS = {"fed", "fomc", "federal reserve", "powell", "ecb", "lagarde", "boe", "bank of england", "bailey", "boj",
+              "bank of japan", "ueda", "snb", "swiss national bank", "boc", "bank of canada", "macklem", "rba",
+              "reserve bank of australia", "bullock", "rbnz", "reserve bank of new zealand", "sarb", "kganyago",
+              "banxico", "pboc", "schlegel"}
+COMMODITIES = {"XAU", "OIL"}
+UP_WORDS = (r"gains?|gained|gaining|rises?|rose|rising|climbs?|climbed|climbing|jumps?|jumped|rall(?:y|ies|ied|ying)|"
+            r"firms?|firmed|firming|strengthens?|strengthened|strengthening|surges?|surged|surging|advances?|advanced|"
+            r"soars?|soared|rebounds?|rebounded|recovers?|recovered|extends? gains|hits? (?:a )?(?:record|fresh|new|\d+-\w+) high|"
+            r"higher|stronger|bid|outperforms?|edges? up|ticks? up|holds? gains|gains? strength|picks? up")
+DOWN_WORDS = (r"falls?|fell|falling|drops?|dropped|dropping|slips?|slipped|slipping|slides?|slid|sliding|weakens?|"
+              r"weakened|weakening|declines?|declined|declining|tumbles?|tumbled|plunges?|plunged|sinks?|sank|"
+              r"retreats?|retreated|slumps?|slumped|loses? ground|lost ground|extends? losses|hits? (?:a )?(?:fresh |new |\d+-\w+ )?low|"
+              r"lower|weaker|offered|underperforms?|edges? (?:down|lower)|ticks? down|pares? gains|under pressure|sell-?off")
+_UP = re.compile(r"^\W{0,3}(?:\w+\W+){0,2}?(" + UP_WORDS + r")\b", re.I)
+_DOWN = re.compile(r"^\W{0,3}(?:\w+\W+){0,2}?(" + DOWN_WORDS + r")\b", re.I)
+
+
+_OTHER_DOLLAR = re.compile(r"(canadian|australian|aussie|new zealand|kiwi|hong kong|singapore|taiwan(ese)?|nz|"
+                           r"canada's|australia's)\s*$")
+CURRENCY_WORDS["CAD"] = CURRENCY_WORDS["CAD"] + ["canadian dollar"]
+CURRENCY_WORDS["AUD"] = CURRENCY_WORDS["AUD"] + ["australian dollar"]
+CURRENCY_WORDS["NZD"] = CURRENCY_WORDS["NZD"] + ["new zealand dollar"]
+
+
+def _mentions(low: str) -> list[tuple[int, int, str, bool]]:
+    """(start, end, currency, is_central_bank) for each currency / bank word in the text."""
+    out = []
+    for c, words in CURRENCY_WORDS.items():
+        for w in words:
+            ww = w.strip()
+            for m in re.finditer(r"(?<![a-z])" + re.escape(ww) + r"(?![a-z])", low):
+                if ww == "dollar" and _OTHER_DOLLAR.search(low[max(0, m.start() - 16):m.start()]):
+                    continue  # "Canadian dollar" is CAD, not USD
+                out.append((m.start(), m.end(), c, ww in BANK_WORDS))
+    return sorted(out)
+
+
+_NEG_BEFORE = re.compile(r"(\bno\b|\bnot\b|\bnever\b|rules? out|ruled out|push(es|ed|ing)? back( on)?|pare[sd]?( back)?|"
+                         r"scal(e|es|ed|ing) back|\bfewer\b|\bless\b|delay(s|ed|ing)?|\bagainst\b|rein(s|ed)? in|"
+                         r"dial(s|led)? back|downplay(s|ed)?|reject(s|ed)?)[ '\-]+(\w+[ '\-]+){0,4}$")  # same clause only
+_NEG_AFTER = re.compile(r"^\W*(\w+\W+){0,3}?(are |is |remain |remains |seem |seems |look |looks )?(some way off|a long way off|"
+                        r"off the table|unlikely|not (imminent|coming|on the cards|expected)|ruled out|delayed|pushed back|"
+                        r"on hold|premature|too early)")
+
+
+def score_currencies(title: str, summary: str = "") -> dict[str, tuple[int, str]]:
+    """+1 / -1 per asset this headline is about (+1 = supportive: hawkish or rising), with the reason."""
+    text = f"{title}. {(summary or '')[:400]}"
+    low = text.lower()
+    ment = _mentions(low)
+    pts: dict[str, list[tuple[int, str]]] = {}
+
+    def add(c: str, v: int, why: str):
+        pts.setdefault(c, []).append((v, why))
+
+    # 1) moves: "<asset> gains", "EUR/USD falls"
+    for m in PAIR_RE.finditer(text.upper()):
+        rest = text[m.end():m.end() + 60]
+        d = 1 if _UP.search(rest) else -1 if _DOWN.search(rest) else 0
+        if d:
+            add(m.group(1), d, f"{m.group(1)}/{m.group(2)} {'up' if d > 0 else 'down'}")
+            add(m.group(2), -d, f"{m.group(1)}/{m.group(2)} {'up' if d > 0 else 'down'}")
+    pair_spans = [(m.start(), m.end()) for m in PAIR_RE.finditer(text.upper())]
+    for st, en, c, bank in ment:
+        if bank or any(a <= st < b for a, b in pair_spans):
+            continue
+        rest = low[en:en + 60]
+        d = 1 if _UP.search(rest) else -1 if _DOWN.search(rest) else 0
+        if d:
+            add(c, d, f"{'rising' if d > 0 else 'falling'} ({low[st:en].strip()})")
+    # 2) rate wording -> the nearest central bank / currency (banks preferred), never gold or oil directly
+    fiat = [x for x in ment if x[2] not in COMMODITIES]
+    for rx, v0, word0 in ((_HAWK, 1, "hawkish"), (_DOVE, -1, "dovish")):
+        other = _DOVE if v0 > 0 else _HAWK
+        for m in rx.finditer(text):
+            if not fiat:
+                break
+            v, word = v0, word0
+            if _NEG_BEFORE.search(low[max(0, m.start() - 35):m.start()]) or _NEG_AFTER.search(low[m.end():m.end() + 40]):
+                # "no rush to cut", "rate cuts are some way off", "rules out hikes" mean the opposite
+                if any(abs(h.start() - m.start()) <= 25 for h in other.finditer(text)):
+                    continue  # an opposite phrase right here ("no rush to cut") already counts it
+                v, word = -v0, ("dovish" if v0 > 0 else "hawkish")
+            sentence_start = max(low.rfind(". ", 0, m.start()), low.rfind("; ", 0, m.start())) + 1
+            cands = [x for x in fiat if x[0] >= sentence_start] or fiat
+            near = min(cands, key=lambda x: (0 if x[3] else 1, abs(x[0] - m.start())))
+            add(near[2], v, f"{word} wording ({m.group(0).strip()}) about {near[2]}")
+    # 3) gold reads US rates the other way round when gold is in the headline and has no move of its own
+    if "USD" in pts and any(x[2] == "XAU" for x in ment) and "XAU" not in pts:
+        us = sum(v for v, _ in pts["USD"] if "wording" in _)
+        if us:
+            add("XAU", -1 if us > 0 else 1, "US rate wording " + ("hawkish: weighs on gold" if us > 0 else "dovish: supports gold"))
+    out = {}
+    for c, lst in pts.items():
+        net = sum(v for v, _ in lst)
+        if net:
+            out[c] = (1 if net > 0 else -1, "; ".join(w for _, w in lst))
+    return out
 
 
 def _rx(words: list[str]) -> re.Pattern:
@@ -450,14 +559,24 @@ def _brief(a: NewsArticle) -> dict:
             "published_at": _aware(a.published_at).isoformat(), "tone": a.tone, "risk": a.risk}
 
 
+_SCORE_CACHE: dict[int, dict] = {}
+
+
+def scores_of(a: NewsArticle) -> dict[str, tuple[int, str]]:
+    hit = _SCORE_CACHE.get(a.id)
+    if hit is None:
+        hit = score_currencies(a.title, a.summary or "")
+        if len(_SCORE_CACHE) > 20000:
+            _SCORE_CACHE.clear()
+        _SCORE_CACHE[a.id] = hit
+    return hit
+
+
 def _scored(a: NewsArticle, c: str) -> dict:
-    """How one headline counted towards currency c's news tone (+1 hawkish, -1 dovish, 0 not counted)."""
-    named = c in _toned(a)
-    pts = (1 if a.tone == "hawkish" else -1 if a.tone == "dovish" else 0) if named else 0
-    why = ("hawkish headline" if pts > 0 else "dovish headline" if pts < 0 else
-           "neutral: no hawkish or dovish wording" if named else
-           f"{a.tone} wording, but {c} only appears as a pair code, so it isn't counted for {c}"
-           if a.tone != "neutral" else "neutral: no hawkish or dovish wording")
+    """How one headline counted for c: +1 supportive (hawkish / rising), -1 weighing (dovish / falling), 0 not about c."""
+    sc = scores_of(a).get(c)
+    pts = sc[0] if sc else 0
+    why = sc[1] if sc else f"mentions {c}, but nothing in it is about {c} moving or its interest rates"
     return _brief(a) | {"points": pts, "why": why}
 
 
@@ -485,11 +604,13 @@ def listing(db: Session, currency: str | None = None, topic: str | None = None, 
     recent = [a for a in arts if _aware(a.published_at) >= utcnow() - timedelta(days=3)]
     tone_by = {}
     for c in ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "ZAR", "MXN", "CNY", "XAU", "OIL"]:
-        mine = [a for a in recent if c in (a.currencies or [])]
-        toned = [a for a in mine if c in _toned(a)]
-        hk, dv = sum(a.tone == "hawkish" for a in toned), sum(a.tone == "dovish" for a in toned)
+        mine = [a for a in recent if c in (a.currencies or []) or c in scores_of(a)]
+        vals = [scores_of(a).get(c, (0, ""))[0] for a in mine]
+        hk, dv = vals.count(1), vals.count(-1)
+        up, down = ("Bullish", "Bearish") if c in COMMODITIES else ("Hawkish", "Dovish")
         tone_by[c] = {"articles": len(mine), "hawkish": hk, "dovish": dv, "net": hk - dv,
-                      "lean": "Hawkish" if hk - dv >= 2 else "Dovish" if dv - hk >= 2 else "Balanced" if mine else "Quiet",
+                      "lean": up if hk - dv >= 2 else down if dv - hk >= 2 else "Balanced" if mine else "Quiet",
+                      "labels": [up, down],
                       "breakdown": [_scored(a, c) for a in mine]}
     ro = sum(a.risk == "risk_off" for a in recent)
     rn = sum(a.risk == "risk_on" for a in recent)
@@ -516,9 +637,8 @@ def tone_cells(db: Session, days: int = 3) -> dict[str, int]:
     for a in arts:
         for c in a.currencies or []:
             out.setdefault(c, 0)
-            if c not in _toned(a):
-                continue
-            out[c] += 1 if a.tone == "hawkish" else -1 if a.tone == "dovish" else 0
+        for c, (v, _) in scores_of(a).items():
+            out[c] = out.get(c, 0) + v
     risk = sum(1 if a.risk == "risk_on" else -1 if a.risk == "risk_off" else 0 for a in arts)
     cells = {c: (1 if n >= 2 else -1 if n <= -2 else 0) for c, n in out.items()}
     cells["_risk"] = 1 if risk >= 3 else -1 if risk <= -3 else 0

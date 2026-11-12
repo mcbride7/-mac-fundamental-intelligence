@@ -83,13 +83,15 @@ function Breakdown({ pick, data, onClose, onFilter }: { pick: string; data: any;
     <div className="mt-4 rounded border border-verify/60 bg-panel-2/40 p-3">
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="font-medium">{risk ? <>Risk mood: {data.risk.risk_on} risk-on − {data.risk.risk_off} risk-off headlines = {data.risk.risk_on - data.risk.risk_off > 0 ? "+" : ""}{data.risk.risk_on - data.risk.risk_off} → {data.risk.lean}</>
-          : <>{name}: {t.hawkish} hawkish − {t.dovish} dovish = {t.net > 0 ? "+" : ""}{t.net} → {t.lean}</>}</h3>
+          : <>{name}: {t.hawkish} {(t.labels?.[0] || "Hawkish").toLowerCase()} − {t.dovish} {(t.labels?.[1] || "Dovish").toLowerCase()} = {t.net > 0 ? "+" : ""}{t.net} → {t.lean}</>}</h3>
         <span className="flex gap-2 text-xs">
           {!risk && <button onClick={onFilter} className="rounded border border-line px-2 py-1 hover:bg-panel-2">Show all {name} headlines below</button>}
           <button onClick={onClose} className="rounded border border-line px-2 py-1 hover:bg-panel-2">Close</button>
         </span>
       </div>
-      <p className="mb-2 text-xs text-muted">Headlines from the last 3 days. {risk ? "Each risk-on headline counts +1 and each risk-off one −1." : "Each hawkish headline counts +1 and each dovish one −1."}</p>
+      <p className="mb-2 text-xs text-muted">Headlines from the last 3 days. {risk ? "Each risk-on headline counts +1 and each risk-off one −1."
+        : t.labels?.[0] === "Bullish" ? `A headline counts +1 when it says ${name} is rising (or US rate talk turns dovish, which usually supports it) and −1 when it is falling (or US rate talk turns hawkish).`
+        : `A headline counts +1 when it is about ${name} being hawkish (rate hikes, hot data) or rising, −1 when dovish or falling. Wording about another currency in the same headline counts for that currency, not ${name}.`}</p>
       {counted.length ? <ul className="divide-y divide-line/60 text-sm">{counted.map(line)}</ul>
         : <p className="text-sm text-muted">No headline counted {risk ? "towards the risk mood" : `towards ${name}`} in the last 3 days.</p>}
       {ignored.length > 0 && (
@@ -129,7 +131,7 @@ export default function NewsPage() {
   return (
     <>
       <PageTitle title="News"
-        subtitle="Central bank press releases, FX headlines and geopolitics, tagged by currency, topic and tone. Hawkish news supports a currency, dovish news weighs on it; the last 3 days feed the News tone column on Top setups." />
+        subtitle="Central bank press releases, FX headlines and geopolitics, tagged by currency, topic and tone. Each headline counts for the currency it is about: hawkish or rising news supports it, dovish or falling news weighs on it (gold and oil read bullish / bearish); the last 3 days feed the News tone column on Top setups." />
       <div className="space-y-6">
         <Panel title="News tone by currency · last 3 days" collapseId="news-tone"
           action={<span className="text-xs text-muted">Tap a currency to see which headlines make up its score</span>}>
@@ -140,14 +142,14 @@ export default function NewsPage() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
                 {CCYS.map((c) => {
                   const t = data.tone[c];
-                  const cls = t.lean === "Hawkish" ? "border-bull bg-bull/15" : t.lean === "Dovish" ? "border-bear bg-bear/15" : "border-line";
+                  const cls = t.lean === "Hawkish" || t.lean === "Bullish" ? "border-bull bg-bull/15" : t.lean === "Dovish" || t.lean === "Bearish" ? "border-bear bg-bear/15" : "border-line";
                   return (
                     <button key={c} onClick={() => setPick(pick === c ? "" : c)} aria-expanded={pick === c}
                       title={`See which headlines make up ${LABEL[c] || c}'s score`}
                       className={`rounded border px-3 py-2 text-left hover:bg-panel-2 ${cls} ${pick === c ? "ring-2 ring-verify" : ""}`}>
                       <div className="flex items-baseline justify-between"><span className="font-semibold">{LABEL[c] || c}</span>
                         <span className={`text-sm tabular-nums ${t.net > 0 ? "text-bull-soft" : t.net < 0 ? "text-bear-soft" : "text-muted"}`}>{t.net > 0 ? "+" : ""}{t.net}</span></div>
-                      <div className="text-xs text-muted">{c === "XAU" || c === "OIL" ? `${t.articles} headlines` : `${t.lean} · ${t.hawkish}↑ ${t.dovish}↓`}</div>
+                      <div className="text-xs text-muted">{`${t.lean} · ${t.hawkish}↑ ${t.dovish}↓`}</div>
                     </button>
                   );
                 })}

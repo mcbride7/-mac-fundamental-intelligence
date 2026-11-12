@@ -90,3 +90,22 @@ def test_filter_by_site(client, db):
     assert [s["name"] for s in d["sources"]] == ["Bank of England", "FXStreet", "ING THINK"]
     assert d["sources"][1]["count"] == 2
     assert client.get("/api/news?source=ING THINK").json()["total"] == 1
+
+
+def test_headline_scored_for_the_currency_it_is_about():
+    from app.services.news import score_currencies
+
+    def s(t):
+        return {c: v for c, (v, _) in score_currencies(t).items()}
+    # US rate-hike talk is hawkish for USD and bearish for gold, never "hawkish gold"
+    assert s("Gold slips as US dollar gains strength on rate hike expectations") == {"XAU": -1, "USD": 1}
+    assert s("Gold hits record high as Fed rate cut bets build") == {"XAU": 1, "USD": -1}
+    # Fed wording isn't credited to the euro; pair moves split base / quote
+    assert s("EUR/USD falls as Fed officials push back on rate cuts") == {"EUR": -1, "USD": 1}
+    # negations and named policy rates
+    assert s("ECB not in a hurry to cut rates; euro steady") == {"EUR": 1}
+    assert s("Fed rules out rate hikes, dollar slips") == {"USD": -1}
+    assert s("SARB cuts repo rate by 25 basis points") == {"ZAR": -1}
+    # "Canadian dollar" is CAD, not USD; no direction = no score
+    assert s("Oil jumps as OPEC+ extends cuts; Canadian dollar firms") == {"OIL": 1, "CAD": 1}
+    assert s("Gold steady ahead of US CPI data") == {}
