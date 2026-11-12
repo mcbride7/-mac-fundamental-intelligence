@@ -131,10 +131,12 @@ def run_finnhub(db: Session, src: Source) -> int:
         if ev is None:
             continue
         period = ev.reference_period
-        ev.scheduled_at = when or ev.scheduled_at
-        if item.get("estimate") is not None:
+        # backup to FMP: fill only what's missing; never replace FMP's or a typed-in forecast
+        if ev.scheduled_at is None and when:
+            ev.scheduled_at = when
+        if item.get("estimate") is not None and ev.consensus_source not in ("manual", "fmp"):
             ev.consensus, ev.consensus_source = float(item["estimate"]), "finnhub"
-        if item.get("prev") is not None:
+        if item.get("prev") is not None and ev.previous is None:
             ev.previous = float(item["prev"])
         if item.get("actual") is not None:
             n += upsert_official_release(db, src, ind, period, float(item["actual"]), ev.consensus, when)
@@ -179,8 +181,8 @@ def _fmp_get(params: dict) -> list:
 
 
 def run_fmp(db: Session, src: Source) -> int:
-    """Third calendar source (after Forex Factory and Finnhub): fills forecasts, previous figures and actuals
-    that the others left empty; never overwrites them."""
+    """Main calendar source: release times, forecasts, previous figures and actuals. Forex Factory and Finnhub
+    fill only what FMP doesn't have; a forecast typed in by hand is never overwritten."""
     from app.ingestion.fred import upsert_official_release
 
     if not settings.fmp_api_key:
@@ -209,11 +211,16 @@ def run_fmp(db: Session, src: Source) -> int:
         if ev is None:
             continue
         period = ev.reference_period
-        if ev.scheduled_at is None and when:
+        # FMP is the main calendar: its time, forecast and previous figure replace Forex Factory's
+        # (a forecast you typed in yourself still wins)
+        if when:
             ev.scheduled_at = when
-        if ev.consensus is None and item.get("estimate") is not None:
+        imp = {"high": "high", "medium": "medium", "low": "low"}.get(str(item.get("impact") or "").lower())
+        if imp:
+            ev.importance = imp
+        if item.get("estimate") is not None and ev.consensus_source != "manual":
             ev.consensus, ev.consensus_source = float(item["estimate"]), "fmp"
-        if ev.previous is None and item.get("previous") is not None:
+        if item.get("previous") is not None:
             ev.previous = float(item["previous"])
         if item.get("actual") is not None:
             n += upsert_official_release(db, src, ind, period, float(item["actual"]), ev.consensus, when)

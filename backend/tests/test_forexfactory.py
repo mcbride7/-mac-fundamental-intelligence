@@ -50,6 +50,14 @@ def test_store_fills_calendar(db):
     db.commit()
     store(db, items)
     assert da.event_for(db, da.indicator_by_code(db, "US_CPI_YOY").id, "2026-09").consensus == 3.0
+    # FMP is the main calendar: its forecast and time aren't replaced by Forex Factory's
+    gb = da.event_for(db, da.indicator_by_code(db, "GB_CPI_YOY").id, "2026-09")
+    gb.consensus, gb.consensus_source, gb.previous = 3.6, "fmp", 3.8
+    fmp_time = gb.scheduled_at
+    db.commit()
+    store(db, items)
+    gb = da.event_for(db, da.indicator_by_code(db, "GB_CPI_YOY").id, "2026-09")
+    assert gb.consensus == 3.6 and gb.consensus_source == "fmp" and gb.scheduled_at == fmp_time
 
 
 def test_forexfactory_is_a_runnable_source(client):

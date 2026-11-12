@@ -244,16 +244,17 @@ def store(db: Session, items: list[dict]) -> tuple[int, int]:
             ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance)
             db.add(ev)
             db.flush()
-        ev.scheduled_at = when
+        # FMP is the main calendar: Forex Factory only fills what FMP hasn't set (and never a typed-in forecast)
+        if ev.scheduled_at is None:
+            ev.scheduled_at = when
         imp = IMPORTANCE.get((item.get("impact") or "").lower())
-        if imp:
+        if imp and ev.consensus_source != "fmp":
             ev.importance = imp
         forecast = parse_value(item.get("forecast"), ind.unit)
         previous = parse_value(item.get("previous"), ind.unit)
-        # a forecast you typed in yourself wins over the feed
-        if forecast is not None and ev.consensus_source != "manual":
+        if forecast is not None and ev.consensus_source not in ("manual", "fmp"):
             ev.consensus, ev.consensus_source = forecast, "forexfactory"
-        if previous is not None:
+        if previous is not None and ev.previous is None:
             ev.previous = previous
         n += 1
     db.commit()
