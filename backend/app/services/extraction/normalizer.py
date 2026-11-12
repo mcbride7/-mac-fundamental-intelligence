@@ -23,8 +23,20 @@ class IndicatorRef:
     aliases: list[str]
 
 
+# Calendar providers word the same release differently (FMP / Trading Economics: "Inflation Rate YoY",
+# "GDP Growth Rate QoQ Prel"; Forex Factory: "CPI y/y", "Prelim GDP q/q"): bring them to one vocabulary.
+SYNONYMS = [
+    (r"harmoni[sz]ed index of consumer prices|consumer price index|\bhicp\b|inflation rate", "cpi"),
+    (r"\bgdp growth rate\b|\bgdp growth\b", "gdp"),
+    (r"\b(prel|prelim|preliminary|adv|advance|flash|final|first|second|third|1st|2nd|3rd)\b( est(imate)?)?", " "),
+    (r"\bnon[- ]?farm payrolls\b", "non-farm employment change"),
+]
+
+
 def _clean(text: str, country: str | None = None) -> str:
     t = text.lower()
+    for rx, rep in SYNONYMS:
+        t = re.sub(rx, rep, t)
     t = re.sub(r"\b(y/y|yoy|m/m|mom|q/q|qoq)\b", " ", t)
     t = re.sub(r"[()\[\],:;]", " ", t)
     if country:
@@ -78,7 +90,7 @@ def map_indicator(
             if transform == ind.transform or (transform == "qoq" and ind.transform == "qoq_saar"):
                 best += 5
             elif ind.transform in ("yoy", "mom", "qoq", "qoq_saar"):
-                best -= 15
+                continue  # "m/m" release vs a "y/y" indicator (or the reverse): different numbers, never match
         elif not transform and ind.transform == "mom" and "m/m" not in text.lower():
             best -= 5  # default to the y/y headline when unspecified
         if not country:

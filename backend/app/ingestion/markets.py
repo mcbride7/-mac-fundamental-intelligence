@@ -11,7 +11,7 @@ from app.ingestion.base import SourceUnavailable, http_get
 from app.models import EconomicEvent, MarketPrice, Source
 from app.services import data_access as da
 from app.services.extraction.normalizer import map_indicator
-from app.services.extraction.text_parser import detect_period
+from app.services.extraction.text_parser import detect_period, detect_transform
 
 # internal symbol -> (provider symbol, asset class)
 SYMBOLS = {
@@ -93,7 +93,7 @@ def run_finnhub(db: Session, src: Source) -> int:
         country = FINNHUB_COUNTRY.get((item.get("country") or "").upper())
         if not country:
             continue
-        code, conf, _ = map_indicator(item.get("event", ""), country, None, refs)
+        code, conf, _ = map_indicator(item.get("event", ""), country, detect_transform(item.get("event", "")), refs)
         if not code or conf < 70:
             continue
         ind = da.indicator_by_code(db, code)
@@ -178,7 +178,7 @@ def run_fmp(db: Session, src: Source) -> int:
         if not country:
             continue
         name = item.get("event") or ""
-        code, conf, _ = map_indicator(name, country, None, refs)
+        code, conf, _ = map_indicator(name, country, detect_transform(name), refs)
         if not code or conf < 70:
             continue
         ind = da.indicator_by_code(db, code)

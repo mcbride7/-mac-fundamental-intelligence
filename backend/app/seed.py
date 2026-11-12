@@ -54,7 +54,7 @@ SOURCES = [
     ("fmp_bars", "FMP price bars: daily and hourly highs / lows for forex and metals (Track record checks)", "2", "api",
      "https://financialmodelingprep.com", None, None, 120, {}),
     ("fmp", "FMP economic calendar (backup: fills gaps left by Forex Factory and Finnhub)", "2", "api",
-     "https://financialmodelingprep.com", None, None, 480, {}),
+     "https://financialmodelingprep.com", None, None, 60, {}),
     ("forexfactory", "Forex Factory calendar (forecasts)", "2", "api", "https://www.forexfactory.com/calendar",
      None, None, 720, {}),
     ("risk", "Risk sentiment market series (FRED daily: VIX, credit spreads, S&P 500, FX)", "1", "api",

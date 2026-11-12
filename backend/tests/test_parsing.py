@@ -74,3 +74,18 @@ def test_indicator_mapping():
 def test_unit_conversion():
     assert convert_unit(250000, None, "k")[0] == 250.0
     assert convert_unit(0.25, "m", "k")[0] == 250.0
+
+
+def test_calendar_provider_names_match():
+    """FMP / Trading Economics wording maps to the same indicators as Forex Factory's, and an m/m release never
+    lands in a y/y indicator."""
+    from app.services.extraction.text_parser import detect_transform
+
+    def m(name, country):
+        return map_indicator(name, country, detect_transform(name), REFS)
+    assert m("Inflation Rate YoY (Oct)", "GB")[0] == "GB_CPI_YOY" and m("Inflation Rate YoY (Oct)", "GB")[1] >= 70
+    assert m("Core Inflation Rate YoY Flash (Oct)", "EA")[0] == "EA_CORE_HICP_YOY"
+    assert m("Inflation Rate YoY (Oct)", "ZA")[0] == "ZA_CPI_YOY"
+    assert m("GDP Growth Rate QoQ Prel (Q3)", "GB")[0] == "GB_GDP_QOQ" and m("GDP Growth Rate QoQ Prel (Q3)", "GB")[1] >= 70
+    assert m("Non Farm Payrolls (Oct)", "US")[0] == "US_NFP"
+    assert m("Core CPI m/m", "US")[0] is None  # no monthly core-CPI indicator: skipped, not saved as y/y
