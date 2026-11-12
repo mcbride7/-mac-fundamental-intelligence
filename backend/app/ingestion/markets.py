@@ -72,6 +72,34 @@ FINNHUB_COUNTRY = {"US": "US", "EU": "EA", "EMU": "EA", "GB": "GB", "UK": "GB", 
                    "CA": "CA", "AU": "AU", "NZ": "NZ", "ZA": "ZA", "CN": "CN", "MX": "MX"}
 
 
+def calendar_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEvent | None:
+    """The calendar event a provider's release belongs to. First the event already on the calendar for this
+    indicator at (about) the same release time, whatever period it was filed under; otherwise the period by
+    Forex Factory's rules, so every source fills the same event the calendar shows."""
+    from app.ingestion.forexfactory import reference_period
+
+    if when is not None:
+        near = db.scalars(select(EconomicEvent).where(
+            EconomicEvent.indicator_id == ind.id, EconomicEvent.scheduled_at >= when - timedelta(hours=18),
+            EconomicEvent.scheduled_at <= when + timedelta(hours=18))).all()
+        if near:
+            def gap(e):
+                t = e.scheduled_at if e.scheduled_at.tzinfo else e.scheduled_at.replace(tzinfo=timezone.utc)
+                return abs((t - when).total_seconds())
+            return min(near, key=gap)
+        period = reference_period(ind.frequency, when, name)
+    else:
+        period, _ = detect_period(name)
+        if not period:
+            return None
+    ev = da.event_for(db, ind.id, period)
+    if ev is None:
+        ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance)
+        db.add(ev)
+        db.flush()
+    return ev
+
+
 def run_finnhub(db: Session, src: Source) -> int:
     from app.ingestion.fred import upsert_official_release
 
@@ -99,19 +127,10 @@ def run_finnhub(db: Session, src: Source) -> int:
         ind = da.indicator_by_code(db, code)
         when = datetime.fromisoformat(item["time"].replace(" ", "T")).replace(tzinfo=timezone.utc) \
             if item.get("time") else None
-        period, _ = detect_period(item.get("event", ""))
-        if not period and when:
-            # releases describe the previous month/quarter by default
-            ref = (when.replace(day=1) - timedelta(days=1))
-            period = f"{ref.year}Q{(ref.month - 1) // 3 + 1}" if ind.frequency == "quarterly" \
-                else f"{ref.year}-{ref.month:02d}"
-        if not period:
-            continue
-        ev = da.event_for(db, ind.id, period)
+        ev = calendar_event(db, ind, when, item.get("event", ""))
         if ev is None:
-            ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance)
-            db.add(ev)
-            db.flush()
+            continue
+        period = ev.reference_period
         ev.scheduled_at = when or ev.scheduled_at
         if item.get("estimate") is not None:
             ev.consensus, ev.consensus_source = float(item["estimate"]), "finnhub"
@@ -186,18 +205,10 @@ def run_fmp(db: Session, src: Source) -> int:
             when = datetime.fromisoformat(str(item.get("date")).replace(" ", "T")[:19]).replace(tzinfo=timezone.utc)
         except ValueError:
             when = None
-        period, _ = detect_period(name)
-        if not period and when:
-            ref = (when.replace(day=1) - timedelta(days=1))
-            period = f"{ref.year}Q{(ref.month - 1) // 3 + 1}" if ind.frequency == "quarterly" \
-                else f"{ref.year}-{ref.month:02d}"
-        if not period:
-            continue
-        ev = da.event_for(db, ind.id, period)
+        ev = calendar_event(db, ind, when, name)
         if ev is None:
-            ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance)
-            db.add(ev)
-            db.flush()
+            continue
+        period = ev.reference_period
         if ev.scheduled_at is None and when:
             ev.scheduled_at = when
         if ev.consensus is None and item.get("estimate") is not None:
