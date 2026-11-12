@@ -96,7 +96,7 @@ export default function TrackRecord() {
             <div className="overflow-x-auto">
               <table className="grid-table">
                 <thead>
-                  <tr><th>Grade</th><th>Calls</th>
+                  <tr><th title="The call's fundamental grade">Call grade</th><th>Calls</th>
                     <th>Right after 1 day</th><th>Avg move 1d</th>
                     <th>Right after 5 days</th><th>Avg move 5d</th>
                     <th>Right after 20 days</th><th>Avg move 20d</th>
@@ -127,18 +127,18 @@ export default function TrackRecord() {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="grid-table">
-                    <thead><tr><th>Given</th><th>Pair</th><th>Call</th><th>Grade</th><th>Type</th><th>Entry</th><th>Stop loss</th><th>Take profit</th><th>Result</th><th>1 day</th><th>5 days</th><th>20 days</th><th></th><th></th><th></th></tr></thead>
+                    <thead><tr><th>Given</th><th>Pair</th><th>Call</th><th title="The fundamental grade of the call (macro model), not the S&D setup">Call grade</th><th title="Your S&D strategy's technical setup for this call">S&amp;D setup</th><th>Entry</th><th>Stop loss</th><th>Take profit</th><th>Result</th><th>1 day</th><th>5 days</th><th>20 days</th><th></th><th></th><th></th></tr></thead>
                     <tbody>
                       {calls.map((r: any) => (<Fragment key={r.id}>
                         <tr onClick={() => setShowing(showing === r.id ? null : r.id)} className={`cursor-pointer ${showing === r.id ? "bg-panel-2/60" : ""}`} title="Click to see the setup">
                           <td className="whitespace-nowrap">{dateTime(r.opened_at)}</td><td>{pair(r.asset)}</td>
                           <td>{r.direction === "LONG" ? "Buy" : "Sell"}</td><td><GradeBadge grade={r.grade} /></td>
                           <td>{r.method === "sd"
-                            ? <span title={r.type_reason} className="cursor-help whitespace-nowrap rounded bg-verify/20 px-2 py-0.5 text-xs font-medium text-verify">S&amp;D swing{r.sd?.grade ? ` · ${r.sd.grade}` : ""}</span>
+                            ? <span title={r.type_reason} className="cursor-help whitespace-nowrap rounded bg-verify/20 px-2 py-0.5 text-xs font-medium text-verify">{r.sd?.grade ? `Setup ${r.sd.grade}` : "4-hour swing"}</span>
                             : <TypeBadge t={r.trade_type} why={r.type_reason} />}</td>
                           <td className="whitespace-nowrap">{r.method === "sd" && r.sd?.entry != null
                             ? <span title={`Call given at ${num(r.entry_price, dec(r.entry_price))}`}>{num(r.sd.entry, dec(r.sd.entry))} <span className="text-xs text-muted">{dateTime(r.sd.entry_at)}</span></span>
-                            : r.method === "sd" ? <span className="text-xs text-muted" title={r.sd?.message}>{r.sd?.state === "none" ? "No setup" : "Waiting for setup"}</span>
+                            : r.method === "sd" ? <span className="text-xs text-muted" title={r.sd?.message}>{r.sd?.state === "none" ? "No setup" : r.sd?.state === "later" ? "Taken under later call" : "Waiting for setup"}</span>
                             : num(r.entry_price, dec(r.entry_price))}</td>
                           <td className="whitespace-nowrap">{r.stop_loss == null ? "—" : <>{num(r.stop_loss, dec(r.stop_loss))} <span className="text-xs text-muted">({r.sl_pct}%)</span></>}</td>
                           <td className="whitespace-nowrap">{r.take_profit == null ? "—" : <>{num(r.take_profit, dec(r.take_profit))} <span className="text-xs text-muted">({r.tp_pct}%{r.risk_reward ? ` · 1:${r.risk_reward}` : ""})</span></>}</td>

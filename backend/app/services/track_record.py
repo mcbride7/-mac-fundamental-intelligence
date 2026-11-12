@@ -413,19 +413,45 @@ def setup_detail(db: Session, signal_id: int, now: datetime | None = None) -> di
 CALL_LIFE = timedelta(days=20)  # a call can be taken by the strategy while it stands, at most 20 days
 
 
+def _view_end(db: Session, r: SignalRecord) -> datetime:
+    """How long the call's direction stands: a re-grade in the same direction (A+ -> A) keeps it going;
+    it ends when the direction flips, the call turns to NO TRADE, or after 20 days."""
+    end = _aware(r.opened_at) + CALL_LIFE
+    cur = r
+    later = db.scalars(select(SignalRecord).where(SignalRecord.asset == r.asset, SignalRecord.opened_at > r.opened_at)
+                       .order_by(SignalRecord.opened_at, SignalRecord.id))
+    for nxt in later:
+        if cur.superseded_at is None:
+            break  # still standing
+        regrade = abs((_aware(nxt.opened_at) - _aware(cur.superseded_at)).total_seconds()) <= 60
+        if regrade and nxt.direction == r.direction:
+            cur = nxt
+            continue
+        return min(end, _aware(cur.superseded_at))  # flipped, or turned NO TRADE
+    if cur.superseded_at is not None:
+        return min(end, _aware(cur.superseded_at))  # closed with nothing after it (NO TRADE)
+    return end
+
+
 def sd_for(db: Session, r: SignalRecord) -> dict | None:
-    """The supply & demand strategy's trade for this call (or what it is waiting for). None if it can't run."""
+    """The supply & demand strategy's trade for this call (or what it is waiting for). None if it can't run.
+    A setup that arrives after the call was re-graded belongs to the newer record, so it's counted once."""
     from app.strategy import sd_live
 
     opened = _aware(r.opened_at)
-    until = min(_aware(r.superseded_at) if r.superseded_at else opened + CALL_LIFE, opened + CALL_LIFE)
     try:
-        return sd_live.trade_for_call(db, r.asset, r.direction, opened, until)
+        until = _view_end(db, r)
+        sd = sd_live.trade_for_call(db, r.asset, r.direction, opened, until)
     except Exception as exc:  # never break the page
         import logging
 
         logging.getLogger(__name__).warning("S&D strategy failed for %s: %s", r.asset, exc)
         return None
+    if r.superseded_at and sd.get("entry_at") and datetime.fromisoformat(sd["entry_at"]) >= _aware(r.superseded_at):
+        return {"state": "later", "rules": sd["rules"], "has_volume": sd.get("has_volume"),
+                "message": f"Setup came on {datetime.fromisoformat(sd['entry_at']).strftime('%d %b %H:%M')}, after this call "
+                           "was re-graded, so it is counted under the newer call"}
+    return sd
 
 
 def _sd_fields(sd: dict | None, plan_json: dict) -> dict:

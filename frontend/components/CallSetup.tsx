@@ -37,7 +37,12 @@ function CandleChart({ d }: { d: any }) {
     if (sd.zone && Math.abs(z.near - sd.zone.near) < 1e-9 && Math.abs(z.far - sd.zone.far) < 1e-9) { zones[0].bos = z.bos; continue; }
     zones.push({ a: z.near, b: z.far, from: idx(z.from), to: z.touched ? idx(z.touched) : n - 1, kind: z.kind, fresh: !z.touched, bos: z.bos, act: idx(z.active) });
   }
-  const all = k.flatMap((b) => [b.h, b.l]).concat(levels, zones.filter((z) => z.main || z.fresh).flatMap((z) => [z.a, z.b]));
+  // scale to the candles (and the trade's levels); a zone far away gets an arrow label at the edge instead of squashing the chart
+  const cLo = Math.min(...k.map((b) => b.l)), cHi = Math.max(...k.map((b) => b.h)), span = cHi - cLo || cHi * 0.002;
+  const near = (z: { a: number; b: number }) => Math.max(z.a, z.b) >= cLo - span * 0.6 && Math.min(z.a, z.b) <= cHi + span * 0.6;
+  const shown = zones.filter((z) => z.main || near(z));
+  const offChart = zones.filter((z) => !z.main && z.fresh && !near(z));
+  const all = k.flatMap((b) => [b.h, b.l]).concat(levels, shown.filter((z) => z.main || z.fresh).flatMap((z) => [z.a, z.b]));
   let lo = Math.min(...all), hi = Math.max(...all);
   const pad = (hi - lo || hi * 0.002) * 0.06; lo -= pad; hi += pad;
   const W = 1000, cw = W / n;
@@ -66,7 +71,7 @@ function CandleChart({ d }: { d: any }) {
               const r = e.currentTarget.getBoundingClientRect();
               setHover(Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width) * n))));
             }}>
-            {zones.map((z, i) => (
+            {shown.map((z, i) => (
               <g key={i}>
                 <rect x={z.from * cw} width={Math.max(cw, (z.to - z.from + 1) * cw)} y={Math.min(Y(z.a), Y(z.b))}
                   height={Math.max(0.6, Math.abs(Y(z.a) - Y(z.b)))} fill={zoneFill(z.kind)} fillOpacity={z.main ? 0.24 : z.fresh ? 0.16 : 0.07}
@@ -99,7 +104,15 @@ function CandleChart({ d }: { d: any }) {
             })}
             {hover != null && <line x1={X(hover)} x2={X(hover)} y1={0} y2={100} stroke="var(--color-muted)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />}
           </svg>
-          {zones.filter((z) => z.main || z.fresh).map((z, i) => (
+          {offChart.map((z, i) => {
+            const above = Math.min(z.a, z.b) > hi, last = k[n - 1].c, edge = above ? Math.min(z.a, z.b) : Math.max(z.a, z.b);
+            return (
+              <span key={`off${i}`} className={`pointer-events-none absolute left-1 whitespace-nowrap rounded border bg-ink/90 px-1 text-[10px] font-medium ${z.kind === "demand" ? "border-up text-up" : "border-bear-soft text-bear-soft"}`}
+                style={above ? { top: `${2 + i * 14}px` } : { bottom: `${2 + i * 14}px` }}>
+                {above ? "↑" : "↓"} Fresh {z.kind} {num(edge, dec(edge))} ({Math.abs((edge / last - 1) * 100).toFixed(1)}% {above ? "above" : "below"})</span>
+            );
+          })}
+          {shown.filter((z) => z.main || z.fresh).map((z, i) => (
             <span key={`zl${i}`} className={`pointer-events-none absolute -translate-y-full whitespace-nowrap rounded px-1 text-[10px] font-medium ${z.kind === "demand" ? "text-up" : "text-bear-soft"}`}
               style={{ left: `${Math.min(88, (z.from / n) * 100)}%`, top: `${Math.min(Y(z.a), Y(z.b))}%` }}>
               {z.main ? `Traded ${z.kind} zone` : `Fresh ${z.kind}`}</span>
@@ -134,7 +147,7 @@ function CandleChart({ d }: { d: any }) {
         {sd.outcome && <span><span className={`mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle ${sd.outcome === "target" ? "bg-up" : sd.outcome === "stop" ? "bg-bear-soft" : "bg-muted"}`} />{OUTCOME[sd.outcome]}{sd.exit_at ? ` · ${dateTime(sd.exit_at)}` : ""}{sd.result_r != null ? ` · ${signed(sd.result_r, 1)}R` : ""}</span>}
       </div>
       <p className="mt-2 text-sm">
-        {traded ? <>Grade <b>{sd.grade}</b> {sd.zone?.kind} zone ({sd.pattern}) · entered {dateTime(sd.entry_at)} on a 4-hour close back out of the zone
+        {traded ? <>S&amp;D setup grade <b>{sd.grade}</b> {sd.zone?.kind} zone ({sd.pattern}) · entered {dateTime(sd.entry_at)} on a 4-hour close back out of the zone
           {sd.state === "open" ? " · still running" : ""}</> : <span className="text-muted">{sd.message}
             {(d.zone_map || []).length > 0 && <> · {(d.zone_map || []).filter((z: any) => !z.touched).length} fresh zone(s) on the chart, {(d.zone_map || []).filter((z: any) => z.touched).length} already used</>}</span>}
       </p>
@@ -259,7 +272,7 @@ function Snapshot({ s, call }: { s: any; call: any }) {
     <div className="grid gap-5 md:grid-cols-2">
       <div>
         <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-          <GradeBadge grade={s.grade} />
+          <span className="text-xs text-muted">Call grade</span><GradeBadge grade={s.grade} />
           <span className="font-semibold">{s.direction === "LONG" ? "Buy" : s.direction === "SHORT" ? "Sell" : "No trade"} {pair(call.asset)}</span>
           <span className="text-muted">Confluence {signed(s.confluence, 0)} · analysis of {dateTime(s.as_of)}</span>
         </div>
