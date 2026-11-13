@@ -89,3 +89,7 @@ def test_calendar_provider_names_match():
     assert m("GDP Growth Rate QoQ Prel (Q3)", "GB")[0] == "GB_GDP_QOQ" and m("GDP Growth Rate QoQ Prel (Q3)", "GB")[1] >= 70
     assert m("Non Farm Payrolls (Oct)", "US")[0] == "US_NFP"
     assert m("Core CPI m/m", "US")[0] is None  # no monthly core-CPI indicator: skipped, not saved as y/y
+    # FMP spells out "Producer Price Index"; a narrower "ex food, energy and trade" measure is not the headline one
+    assert m("Producer Price Index YoY (Oct)", "US")[0] == "US_PPI_YOY"
+    code, conf, _ = m("PPI Ex Food, Energy and Trade YoY (Oct)", "US")
+    assert code != "US_PPI_YOY" and conf < 70

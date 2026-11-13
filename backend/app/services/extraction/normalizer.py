@@ -27,6 +27,7 @@ class IndicatorRef:
 # "GDP Growth Rate QoQ Prel"; Forex Factory: "CPI y/y", "Prelim GDP q/q"): bring them to one vocabulary.
 SYNONYMS = [
     (r"harmoni[sz]ed index of consumer prices|consumer price index|\bhicp\b|inflation rate", "cpi"),
+    (r"producer price index|producer prices", "ppi"),
     (r"\bgdp growth rate\b|\bgdp growth\b", "gdp"),
     (r"\b(prel|prelim|preliminary|adv|advance|flash|final|first|second|third|1st|2nd|3rd)\b( est(imate)?)?", " "),
     (r"\bnon[- ]?farm payrolls\b", "non-farm employment change"),
@@ -49,6 +50,9 @@ def _tokens(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9/]+", text.lower()) if w not in _STOP}
 
 
+_EX = re.compile(r"\bex[- ](?:food|energy|autos?|gas|trade|fuel)|\bexcl(?:uding|\.)?\b|\bless food\b")
+
+
 def map_indicator(
     text: str,
     country: str | None,
@@ -61,6 +65,8 @@ def map_indicator(
     name = _clean(text, country)
     name_tokens = _tokens(name)
     is_core = "core" in name_tokens
+    # a narrower measure ("PPI ex food, energy and trade", "CPI excluding ...") is not the headline indicator
+    is_ex = bool(_EX.search(text.lower()))
     scored: list[tuple[str, float]] = []
     for ind in indicators:
         if country and ind.country != country:
@@ -73,6 +79,8 @@ def map_indicator(
                 continue
             a_tokens = _tokens(a)
             if ("core" in a_tokens) != is_core:
+                continue
+            if is_ex and not _EX.search(alias.lower()) and "core" not in a_tokens:
                 continue
             if a == name:
                 s = 95.0
