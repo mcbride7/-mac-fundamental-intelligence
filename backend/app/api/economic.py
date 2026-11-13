@@ -29,6 +29,57 @@ class EventIn(BaseModel):
     consensus_source: str | None = None
 
 
+FEED_COUNTRIES = {"US", "EU", "EMU", "DE", "FR", "IT", "ES", "GB", "UK", "JP", "CH", "CA", "AU", "NZ", "CN", "ZA", "MX"}
+_FEED_CACHE: dict = {}
+
+
+@router.get("/economic-calendar/feed")
+def calendar_feed(start: date | None = None, end: date | None = None, db: Session = Depends(get_db)):
+    """Every FMP calendar event for the site's currencies (tracked or not), each labelled with the indicator it
+    fills when the site tracks it. Read-only; cached 10 minutes."""
+    import time as _time
+
+    from app.config import settings
+    from app.ingestion.markets import FINNHUB_COUNTRY, _fmp_get
+    from app.services.extraction.normalizer import map_indicator
+    from app.services.extraction.text_parser import detect_transform
+
+    start = start or (date.today() - timedelta(days=7))
+    end = end or (date.today() + timedelta(days=14))
+    if not settings.fmp_api_key:
+        return {"items": [], "error": "FMP_API_KEY not set"}
+    key = (start, end)
+    hit = _FEED_CACHE.get(key)
+    if hit and _time.time() - hit[0] < 600:
+        return hit[1]
+    try:
+        raw = _fmp_get({"from": start.isoformat(), "to": end.isoformat(), "apikey": settings.fmp_api_key})
+    except Exception as exc:
+        return {"items": [], "error": str(exc)[:200]}
+    refs = da.indicator_refs(db)
+    items = []
+    for it in raw:
+        if not isinstance(it, dict) or (it.get("country") or "").upper() not in FEED_COUNTRIES:
+            continue
+        name = it.get("event") or ""
+        try:
+            when = datetime.fromisoformat(str(it.get("date")).replace(" ", "T")[:19]).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        country = FINNHUB_COUNTRY.get((it.get("country") or "").upper())
+        code, conf, _ = map_indicator(name, country, detect_transform(name), refs) if country else (None, 0, [])
+        items.append({"scheduled_at": when, "country": it.get("country"), "currency": it.get("currency"), "event": name,
+                      "impact": (it.get("impact") or "").lower() or None, "actual": it.get("actual"),
+                      "forecast": it.get("estimate"), "previous": it.get("previous"), "unit": it.get("unit"),
+                      "indicator": code if conf >= 70 else None})
+    items.sort(key=lambda x: x["scheduled_at"])
+    out = {"items": items, "error": None}
+    if len(_FEED_CACHE) > 20:
+        _FEED_CACHE.clear()
+    _FEED_CACHE[key] = (_time.time(), out)
+    return out
+
+
 @router.get("/economic-calendar")
 def calendar(start: date | None = None, end: date | None = None, country: str | None = None,
              currency: str | None = None, indicator: str | None = None, importance: str | None = None,
@@ -75,6 +126,7 @@ def calendar(start: date | None = None, end: date | None = None, country: str | 
             "event_id": ev.id, "date": sched.date().isoformat(), "time": sched.strftime("%H:%M"),
             "scheduled_at": sched, "country": ind.country, "currency": ind.currency, "indicator": ind.code,
             "event": ind.name, "reference_period": ev.reference_period, "importance": ind.importance,
+            "higher_is": ind.higher_is,
             "previous": ev.previous, "market_forecast": ev.consensus, "central_bank_projection": proj,
             "actual": rel.actual if rel else None, "unit": ind.unit, "release_id": rel.id if rel else None,
             "surprise": s.market_surprise if s else None, "surprise_class": s.classification if s else None,
