@@ -13,6 +13,22 @@ const IMPORTANCE: Record<string, { mark: string; label: string; cls: string }> =
   low: { mark: "●", label: "Low", cls: "text-dove" },
 };
 
+// Release times are stored in UTC and shown in the viewer's own time zone (Johannesburg = UTC+2).
+function tzLabel() {
+  const off = -new Date().getTimezoneOffset() / 60;
+  return off === 0 ? "UTC" : `your time, UTC${off > 0 ? "+" : "−"}${Math.abs(off)}`;
+}
+const localDate = (iso: string | null | undefined, fallback: string) => {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime())
+    ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : fallback;
+};
+const localTime = (iso: string | null | undefined, fallback: string) => {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime())
+    ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }) : fallback;
+};
+
 // A number you can click to change. Enter saves, Esc cancels. An actual goes through the same
 // checks as Data input; if it looks unusual the API asks for a reason before saving it.
 const FIELD_LABEL: Record<string, string> = { consensus: "forecast", cb_projection: "CB projection" };
@@ -84,6 +100,8 @@ function EditableCell({ eventId, field, value, digits, unit, strong, onSaved, si
 }
 
 export default function Calendar() {
+  const [tz, setTz] = useState("your time");
+  useEffect(() => { setTz(tzLabel()); }, []);
   const [f, setF] = useState({ currency: "", importance: "", category: "", status: "", days: "14" });
   const today = new Date();
   const end = new Date(today.getTime() + +f.days * 86400000).toISOString().slice(0, 10);
@@ -114,7 +132,7 @@ export default function Calendar() {
       ) : (
         <div className="overflow-x-auto rounded-md border border-line bg-panel">
           <table className="grid-table">
-            <thead><tr><th>Date</th><th>Time (UTC)</th><th>Ccy</th><th>Event</th><th></th><th>Previous</th><th>Forecast</th>
+            <thead><tr><th>Date</th><th title="Release times are shown in this device's time zone">Time ({tz})</th><th>Ccy</th><th>Event</th><th></th><th>Previous</th><th>Forecast</th>
               <th>CB projection</th><th>Actual</th><th>Surprise</th><th>Data</th></tr></thead>
             <tbody>
               {data.map((e) => {
@@ -122,7 +140,7 @@ export default function Calendar() {
                 const u = e.unit === "%" ? "%" : e.unit === "k" ? "k" : "";
                 return (
                   <tr key={e.event_id}>
-                    <td className="whitespace-nowrap">{e.date}</td><td>{e.time}</td><td>{e.currency}</td>
+                    <td className="whitespace-nowrap">{localDate(e.scheduled_at, e.date)}</td><td>{localTime(e.scheduled_at, e.time)}</td><td>{e.currency}</td>
                     <td>{e.release_id ? <Link href={`/calendar/${e.event_id}`} className="hover:underline">{e.event}</Link> : e.event}
                       <span className="block text-xs text-muted">{e.reference_period}</span></td>
                     <td className={imp.cls} title={`${imp.label} importance`}><span aria-hidden>{imp.mark}</span><span className="sr-only">{imp.label}</span></td>
