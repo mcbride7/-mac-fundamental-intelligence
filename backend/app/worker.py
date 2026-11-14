@@ -40,6 +40,9 @@ celery_app.conf.beat_schedule = {
     # morning, and Monday/Tuesday to catch weeks delayed by US holidays.
     "cftc-cot-fri": {"task": "app.worker.run_source_task",
                      "schedule": crontab(minute=15, hour=21, day_of_week="fri"), "args": ["cftc"]},
+    # holiday weeks (e.g. Veterans Day, Thanksgiving) move the release to Monday 3:30 pm New York time
+    "cftc-cot-mon": {"task": "app.worker.run_source_task",
+                     "schedule": crontab(minute=15, hour=21, day_of_week="mon"), "args": ["cftc"]},
     "cftc-cot-catchup": {"task": "app.worker.run_source_task",
                          "schedule": crontab(minute=0, hour=6, day_of_week="sat,mon,tue"), "args": ["cftc"]},
     "yields-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=5, hour="*/6"), "args": ["yields"]},
