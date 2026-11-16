@@ -28,7 +28,7 @@ class IndicatorRef:
 SYNONYMS = [
     (r"harmoni[sz]ed index of consumer prices|consumer price index|\bhicp\b|inflation rate", "cpi"),
     (r"producer price index|producer prices", "ppi"),
-    (r"\bgdp growth rate\b|\bgdp growth\b", "gdp"),
+    (r"\bgdp growth rate\b|\bgdp growth\b|\bgross domestic product\b", "gdp"),
     (r"\b(prel|prelim|preliminary|adv|advance|flash|final|first|second|third|1st|2nd|3rd)\b( est(imate)?)?", " "),
     (r"\bnon[- ]?farm payrolls\b", "non-farm employment change"),
 ]
@@ -39,6 +39,8 @@ def _clean(text: str, country: str | None = None) -> str:
     for rx, rep in SYNONYMS:
         t = re.sub(rx, rep, t)
     t = re.sub(r"\b(y/y|yoy|m/m|mom|q/q|qoq)\b", " ", t)
+    # the period a provider tags on: "(Oct)", "(Q3)", "(Nov/07)", "(2026)"
+    t = re.sub(r"\((?:q[1-4]|h[12]|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|\d{4})(?:/\d{1,2})?\)", " ", t)
     t = re.sub(r"[()\[\],:;]", " ", t)
     if country:
         for tok in sorted(COUNTRY_TOKENS.get(country, []), key=len, reverse=True):
@@ -58,8 +60,13 @@ def map_indicator(
     country: str | None,
     transform: str | None,
     indicators: list[IndicatorRef],
+    exact: bool = False,
 ) -> tuple[str | None, float, list[tuple[str, float]]]:
-    """Return (best code, confidence 0-100, ranked candidates)."""
+    """Return (best code, confidence 0-100, ranked candidates).
+
+    exact=True (calendar feeds such as FMP that list every sub-measure: "ISM Manufacturing Prices",
+    "U-6 Unemployment Rate", "Michigan 1 Year Inflation Expectations") accepts only a name whose words are
+    exactly an indicator's name or alias, never one that merely contains it."""
     if not text:
         return None, 0.0, []
     name = _clean(text, country)
@@ -82,8 +89,10 @@ def map_indicator(
                 continue
             if is_ex and not _EX.search(alias.lower()) and "core" not in a_tokens:
                 continue
-            if a == name:
+            if a == name or (exact and a_tokens and a_tokens == name_tokens):
                 s = 95.0
+            elif exact:
+                continue
             elif re.search(rf"(?<![a-z]){re.escape(a)}(?![a-z])", name) or \
                     re.search(rf"(?<![a-z]){re.escape(name)}(?![a-z])", a):
                 s = 70.0 + 20.0 * min(len(a), len(name)) / max(len(a), len(name))

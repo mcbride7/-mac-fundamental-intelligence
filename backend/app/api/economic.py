@@ -40,9 +40,7 @@ def calendar_feed(start: date | None = None, end: date | None = None, db: Sessio
     import time as _time
 
     from app.config import settings
-    from app.ingestion.markets import FINNHUB_COUNTRY, _fmp_get
-    from app.services.extraction.normalizer import map_indicator
-    from app.services.extraction.text_parser import detect_transform
+    from app.ingestion.markets import FINNHUB_COUNTRY, _fmp_get, fmp_match, fmp_refs
 
     start = start or (date.today() - timedelta(days=7))
     end = end or (date.today() + timedelta(days=14))
@@ -56,7 +54,8 @@ def calendar_feed(start: date | None = None, end: date | None = None, db: Sessio
         raw = _fmp_get({"from": start.isoformat(), "to": end.isoformat(), "apikey": settings.fmp_api_key})
     except Exception as exc:
         return {"items": [], "error": str(exc)[:200]}
-    refs = da.indicator_refs(db)
+    refs = fmp_refs(da.indicator_refs(db))
+    freq = dict(db.execute(select(Indicator.code, Indicator.frequency)).all())
     items = []
     for it in raw:
         if not isinstance(it, dict) or (it.get("country") or "").upper() not in FEED_COUNTRIES:
@@ -67,11 +66,11 @@ def calendar_feed(start: date | None = None, end: date | None = None, db: Sessio
         except ValueError:
             continue
         country = FINNHUB_COUNTRY.get((it.get("country") or "").upper())
-        code, conf, _ = map_indicator(name, country, detect_transform(name), refs) if country else (None, 0, [])
+        code = fmp_match(it, country, refs, freq) if country else None
         items.append({"scheduled_at": when, "country": it.get("country"), "currency": it.get("currency"), "event": name,
                       "impact": (it.get("impact") or "").lower() or None, "actual": it.get("actual"),
                       "forecast": it.get("estimate"), "previous": it.get("previous"), "unit": it.get("unit"),
-                      "indicator": code if conf >= 70 else None})
+                      "indicator": code})
     items.sort(key=lambda x: x["scheduled_at"])
     out = {"items": items, "error": None}
     if len(_FEED_CACHE) > 20:

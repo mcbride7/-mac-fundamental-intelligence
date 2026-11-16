@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.ingestion.base import SourceUnavailable, http_get
-from app.models import EconomicEvent, MarketPrice, Source
+from app.models import EconomicEvent, Indicator, MarketPrice, Source
 from app.services import data_access as da
 from app.services.extraction.normalizer import map_indicator
 from app.services.extraction.text_parser import detect_period, detect_transform
@@ -70,6 +70,91 @@ def run_prices(db: Session, src: Source) -> int:
 
 FINNHUB_COUNTRY = {"US": "US", "EU": "EA", "EMU": "EA", "GB": "GB", "UK": "GB", "JP": "JP", "CH": "CH",
                    "CA": "CA", "AU": "AU", "NZ": "NZ", "ZA": "ZA", "CN": "CN", "MX": "MX"}
+
+
+# FMP's own names for releases whose site name is worded differently (period tag "(Oct)" left off)
+FMP_ALIASES = {
+    "US_UMICH": ["michigan consumer sentiment"],
+    "US_ISM_SERVICES": ["ism services pmi", "ism non-manufacturing pmi"],
+    "EA_MANUF_PMI": ["s&p global manufacturing pmi", "hcob manufacturing pmi"],
+    "EA_SERVICES_PMI": ["s&p global services pmi", "hcob services pmi"],
+    "EA_PMI_COMPOSITE": ["s&p global composite pmi", "hcob composite pmi"],
+    "GB_MANUF_PMI": ["s&p global manufacturing pmi"], "GB_SERVICES_PMI": ["s&p global services pmi"],
+    "GB_CONSUMER_CONF": ["gfk consumer confidence"],
+    "JP_MANUF_PMI": ["s&p global manufacturing pmi", "jibun bank manufacturing pmi"],
+    "JP_SERVICES_PMI": ["s&p global services pmi", "jibun bank services pmi"],
+    "AU_MANUF_PMI": ["s&p global manufacturing pmi"], "AU_SERVICES_PMI": ["s&p global services pmi"],
+    "AU_CONSUMER_CONF": ["westpac consumer confidence index", "westpac consumer confidence"],
+    "AU_CORE_TRIMMED_MEAN_YOY": ["rba trimmed mean cpi"],
+    "CA_MANUF_PMI": ["s&p global manufacturing pmi"], "CA_SERVICES_PMI": ["s&p global services pmi"],
+    "CH_MANUF_PMI": ["procure.ch manufacturing pmi"], "CH_SERVICES_PMI": ["procure.ch services pmi"],
+    "NZ_MANUF_PMI": ["business nz pmi", "businessnz pmi"], "NZ_SERVICES_PMI": ["services nz psi", "businessnz psi"],
+    "NZ_CONSUMER_CONF": ["anz roy morgan consumer confidence"],
+    "CN_CAIXIN_MANUF_PMI": ["s&p global manufacturing pmi", "ratingdog manufacturing pmi"],
+    "CN_CAIXIN_SERVICES_PMI": ["s&p global services pmi", "ratingdog services pmi"],
+    "MX_MANUF_PMI": ["s&p global manufacturing pmi"],
+    "ZA_SERVICES_PMI": ["s&p global composite pmi"],
+    "ZA_SARB_RATE": ["interest rate decision"],
+    "GB_UNEMPLOYMENT": ["ilo unemployment rate"],
+}
+_MONTHS = r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec"
+
+
+def fmp_refs(refs: list) -> list:
+    """The site's indicators with FMP's extra names added."""
+    from dataclasses import replace as _replace
+
+    return [_replace(r, aliases=list(r.aliases or []) + FMP_ALIASES.get(r.code, [])) for r in refs]
+
+
+def fmp_match(item: dict, country: str, refs: list, freq: dict) -> str | None:
+    """The indicator an FMP calendar line fills, or None. Strict: FMP lists every sub-measure next to the
+    headline ("ISM Manufacturing Prices", "U-6 Unemployment Rate", "CPI s.a" index level, "GDP Capital
+    Expenditure QoQ"), so only an exact name counts, an index level never fills a %-change indicator, and a
+    quarterly print never fills a monthly indicator (or the reverse)."""
+    import re as _re
+
+    name = item.get("event") or ""
+    tr = detect_transform(name)
+    code, conf, _ = map_indicator(name, country, tr, refs, exact=True)
+    if not code or conf < 70:
+        return None
+    ref = next((r for r in refs if r.code == code), None)
+    low = name.lower()
+    if ref is not None:
+        names = " ".join([ref.name] + list(ref.aliases or [])).lower()
+        for word in ("change", "annualized", "annualised"):
+            if word in low and word not in names and not (word.startswith("annuali") and ref.transform == "qoq_saar"):
+                return None  # "Westpac Consumer Confidence Change" is not the index; "GDP Annualized" not q/q
+    unit = str(item.get("unit") or "").strip().lower()
+    if ref is not None and (ref.transform or "") in ("yoy", "mom", "qoq", "qoq_saar"):
+        if unit == "index" or (not tr and unit != "%"):
+            return None  # "CPI (Oct)" 337.5 index level, "Producer Price Index (Oct)" 160.3
+    tag = _re.search(r"\((q[1-4]|" + _MONTHS + r")[a-z]*\)", name.lower())
+    f = freq.get(code)
+    if tag and f:
+        quarterly_tag = tag.group(1).startswith("q")
+        if (f == "quarterly") != quarterly_tag and f in ("monthly", "quarterly"):
+            return None  # Australia's quarterly CPI vs the monthly one; UK monthly GDP vs quarterly GDP
+    return code
+
+
+def period_tag(name: str) -> str | None:
+    """The period a provider tags on a release name: "(Sep)" -> "sep", "(Q3)" -> "q3"."""
+    import re as _re
+
+    m = _re.search(r"\((q[1-4]|" + _MONTHS + r")[a-z]*\)", (name or "").lower())
+    return m.group(1) if m else None
+
+
+def _tag_of_period(period: str) -> str | None:
+    """"2026-08" -> "aug", "2026Q3" -> "q3"."""
+    if "Q" in period:
+        return "q" + period[-1]
+    try:
+        return _MONTHS.split("|")[int(period[5:7]) - 1]
+    except (ValueError, IndexError):
+        return None
 
 
 def calendar_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEvent | None:
@@ -188,29 +273,44 @@ def run_fmp(db: Session, src: Source) -> int:
     if not settings.fmp_api_key:
         raise SourceUnavailable("FMP_API_KEY not set (free key from financialmodelingprep.com)")
     today = date.today()
-    rows = _fmp_get({"from": (today - timedelta(days=7)).isoformat(), "to": (today + timedelta(days=21)).isoformat(),
+    start = today - timedelta(days=FMP_LOOKBACK_DAYS)
+    rows = _fmp_get({"from": start.isoformat(), "to": (today + timedelta(days=21)).isoformat(),
                      "apikey": settings.fmp_api_key})
-    refs = da.indicator_refs(db)
+    refs = fmp_refs(da.indicator_refs(db))
+    freq = dict(db.execute(select(Indicator.code, Indicator.frequency)).all())
     n = 0
+    filled: set[int] = set()  # events already filled this run: FMP repeats a release under two names
+    written: set[tuple[int, str]] = set()
+    matched: dict[tuple[str, str], list[dict]] = {}
     for item in rows:
         if not isinstance(item, dict):
             continue
         country = FINNHUB_COUNTRY.get((item.get("country") or "").upper())
         if not country:
             continue
+        code = fmp_match(item, country, refs, freq)
+        if code:
+            matched.setdefault((code, str(item.get("date"))), []).append(item)
+    for (code, _), group in matched.items():
+        item = next((g for g in group if g.get("actual") is not None), group[0])
         name = item.get("event") or ""
-        code, conf, _ = map_indicator(name, country, detect_transform(name), refs)
-        if not code or conf < 70:
-            continue
         ind = da.indicator_by_code(db, code)
+        if ind is None:
+            continue
         try:
             when = datetime.fromisoformat(str(item.get("date")).replace(" ", "T")[:19]).replace(tzinfo=timezone.utc)
         except ValueError:
             when = None
         ev = calendar_event(db, ind, when, name)
-        if ev is None:
+        if ev is None or ev.id in filled:
             continue
+        filled.add(ev.id)
         period = ev.reference_period
+        if len(group) > 1:
+            # one release, two prints (Canada's GDP: the month just gone and a flash for the next):
+            # the one for the period the calendar event is filed under
+            want = _tag_of_period(period)
+            item = next((g for g in group if period_tag(g.get("event") or "") == want), item)
         # FMP is the main calendar: its time, forecast and previous figure replace Forex Factory's
         # (a forecast you typed in yourself still wins)
         if when:
@@ -224,9 +324,89 @@ def run_fmp(db: Session, src: Source) -> int:
             ev.previous = float(item["previous"])
         if item.get("actual") is not None:
             n += upsert_official_release(db, src, ind, period, float(item["actual"]), ev.consensus, when)
+            written.add((ind.id, period))
         n += 1
+    db.flush()
+    # only where FMP's reply really covers the dates (a short or cut-off reply never removes anything)
+    seen = sorted(str(i.get("date"))[:10] for i in rows if isinstance(i, dict) and i.get("date"))
+    if len(rows) >= 100 and seen and seen[0] <= (start + timedelta(days=2)).isoformat():
+        since = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
+        n += _drop_bad_fmp(db, src, since, written, filled)
     db.commit()
     return n
+
+
+FMP_LOOKBACK_DAYS = 35
+
+
+def _drop_bad_fmp(db: Session, src: Source, since: datetime, written: set, filled: set) -> int:
+    """Remove FMP figures from the lookback window that today's strict matching no longer gives: the old,
+    looser matching filed sub-measures under headline indicators ("ISM Manufacturing Prices" as the ISM
+    PMI, Michigan inflation expectations as US CPI). Where FMP had overwritten another source's figure,
+    that figure becomes current again."""
+    from app.models.core import EconomicRelease
+
+    bad = db.scalars(select(EconomicRelease).where(
+        EconomicRelease.source_id == src.id, EconomicRelease.released_at >= since)).all()
+    keys = {(r.indicator_id, r.reference_period) for r in bad} - written
+    dropped = 0
+    for ind_id, period in keys:
+        rows = db.scalars(select(EconomicRelease).where(
+            EconomicRelease.indicator_id == ind_id, EconomicRelease.reference_period == period)
+            .order_by(EconomicRelease.id)).all()
+        mine = [r for r in rows if r.source_id == src.id]
+        others = [r for r in rows if r.source_id != src.id]
+        if not mine:
+            continue
+        db.flush()
+        for r in mine:
+            _drop_release(db, r.id)
+        dropped += len(mine)
+        if others and not any(r.is_current for r in others):
+            last = others[-1]
+            last.is_current, last.verification_status = True, "VERIFIED"
+        ev = da.event_for(db, ind_id, period)
+        if ev is not None and not others and ev.id not in filled and ev.consensus_source in (None, "fmp"):
+            if _event_unused(db, ev.id):
+                db.delete(ev)
+    if dropped:
+        db.flush()
+    return dropped
+
+
+def _refs_to(table: str) -> list:
+    """(table, column) pairs that point at `table`'s id, from the metadata, so a new link is never missed."""
+    import app.models  # noqa: F401  (every model registered)
+    from app.db import Base
+
+    out = []
+    for t in Base.metadata.sorted_tables:
+        for c in t.columns:
+            if any(f.column.table.name == table for f in c.foreign_keys):
+                out.append((t, c))
+    return out
+
+
+def _drop_release(db: Session, release_id: int) -> None:
+    """Delete a release: links that may be empty are cleared, rows computed from it (surprises, forecast
+    errors) go with it."""
+    from sqlalchemy import delete, update
+
+    from app.models.core import EconomicRelease
+
+    for t, c in _refs_to("economic_releases"):
+        if c.nullable:
+            db.execute(update(t).where(c == release_id).values({c.name: None}))
+        elif t.name != "economic_releases":
+            db.execute(delete(t).where(c == release_id))
+    db.execute(delete(EconomicRelease).where(EconomicRelease.id == release_id))
+
+
+def _event_unused(db: Session, event_id: int) -> bool:
+    for t, c in _refs_to("economic_events"):
+        if db.execute(select(c).select_from(t).where(c == event_id).limit(1)).first():
+            return False
+    return True
 
 
 def latest_price(db: Session, symbol: str) -> MarketPrice | None:
