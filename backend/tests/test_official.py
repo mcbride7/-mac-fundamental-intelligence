@@ -75,10 +75,11 @@ def test_run_agency_writes_and_verifies(db, monkeypatch):
         off.Series("GB_UNEMPLOYMENT", lambda: (_ for _ in ()).throw(off.SourceUnavailable("ONS mgsx: down"))),
     ])
     src = db.scalar(select(Source).where(Source.key == "ons"))
-    n = off.run_agency(db, src, agency)
+    n, warning = off.run_agency(db, src, agency)  # partly worked: the count and what failed
     ind = da.indicator_by_code(db, "GB_CPI_YOY")
     rel = da.current_release(db, ind.id, "2026-08")
     assert n == 2 and rel.actual == 3.6 and rel.verification_status == "VERIFIED"
+    assert "GB_UNEMPLOYMENT" in warning
     # all series failing -> the run fails with the reason
     bad = off.Agency("ons", [off.Series("GB_CPI_YOY", lambda: (_ for _ in ()).throw(off.SourceUnavailable("x")))])
     with pytest.raises(off.SourceUnavailable):

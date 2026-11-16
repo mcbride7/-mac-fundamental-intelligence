@@ -535,7 +535,7 @@ STATSSA = Agency("statssa", [
 # --------------------------------------------------------------------------- China (NBS English press releases)
 
 NBS = "https://www.stats.gov.cn/english/PressRelease/"
-MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", "may", "june", "july", "august",
+NBS_MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", "may", "june", "july", "august",
                                        "september", "october", "november", "december"), 1)}
 _NBS_LIST: dict = {}
 
@@ -577,7 +577,7 @@ def _month_period(title: str) -> str | None:
     import re
 
     m = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})", title, re.I)
-    return f"{m.group(2)}-{MONTHS[m.group(1).lower()]:02d}" if m else None
+    return f"{m.group(2)}-{NBS_MONTHS[m.group(1).lower()]:02d}" if m else None
 
 
 def parse_nbs_cpi(text: str) -> tuple[float | None, float | None]:

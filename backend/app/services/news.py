@@ -178,7 +178,7 @@ HAWKISH = [r"hawkish", r"rate hikes?", r"hikes? rates?",
            r"sticky inflation", r"inflation (rises|rose|accelerat\w*|jumps|jumped|heats? up|surges?)",
            r"hot(ter)?(-than-expected)? (inflation|cpi)", r"stronger[- ]than[- ]expected", r"beats? (expectations|forecasts?)",
            r"strong (jobs|payrolls|data)", r"no (rush|hurry) to cut", r"fewer (rate )?cuts",
-           r"(another|one more|further|a) hike", r"hikes? (in|at|this|next) ", r"push(es|ed)? back on (rate )?cuts"]
+           r"(another|one more|further|a) hike", r"more (rate )?hikes", r"hikes? (in|at|this|next) ", r"push(es|ed)? back on (rate )?cuts"]
 DOVISH = [r"dovish", r"rate cuts?", r"cuts? (interest )?rates?",
           r"(cuts?|lowers?|lowered|reduces?|reduced|trims?|trimmed) (the |its )?(repo|policy|benchmark|key|cash|bank|official|interest) rates?", r"cutting", r"eas(ing|es|ed) (policy|rates)",
           r"monetary easing", r"lowers? (interest )?rates?", r"lowered (interest )?rates?", r"rate reduction",
@@ -563,12 +563,13 @@ _SCORE_CACHE: dict[int, dict] = {}
 
 
 def scores_of(a: NewsArticle) -> dict[str, tuple[int, str]]:
-    hit = _SCORE_CACHE.get(a.id)
+    key = (a.id, a.title, a.summary)  # the text too: an id can be reused (database rebuilt, tests)
+    hit = _SCORE_CACHE.get(key)
     if hit is None:
         hit = score_currencies(a.title, a.summary or "")
         if len(_SCORE_CACHE) > 20000:
             _SCORE_CACHE.clear()
-        _SCORE_CACHE[a.id] = hit
+        _SCORE_CACHE[key] = hit
     return hit
 
 

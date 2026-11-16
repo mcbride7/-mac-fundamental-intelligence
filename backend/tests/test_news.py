@@ -73,9 +73,10 @@ def test_tone_breakdown(db):
     db.commit()
     usd = news.listing(db)["tone"]["USD"]
     pts = {b["title"]: b["points"] for b in usd["breakdown"]}
-    assert pts == {"Fed signals more hikes": 1, "GBP/USD rallies on strong UK wages": 0, "Powell speaks today": 0}
+    # a pair move counts for both legs: GBP/USD up = GBP stronger, USD weaker
+    assert pts == {"Fed signals more hikes": 1, "GBP/USD rallies on strong UK wages": -1, "Powell speaks today": 0}
     assert usd["net"] == sum(pts.values())
-    assert "pair code" in next(b["why"] for b in usd["breakdown"] if b["points"] == 0 and "GBP" in b["title"])
+    assert "GBP/USD up" in next(b["why"] for b in usd["breakdown"] if "GBP" in b["title"])
 
 
 def test_filter_by_site(client, db):
