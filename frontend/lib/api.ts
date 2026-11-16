@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 // Login session kept in this browser (set by the login page). The old NEXT_PUBLIC_API_TOKEN still
@@ -80,24 +80,38 @@ export const patch = <T = any>(path: string, body?: unknown) =>
   api<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}) });
 export const del = <T = any>(path: string) => api<T>(path, { method: "DELETE" });
 
-export function useApi<T = any>(path: string | null) {
+/** Load `path`. With `refreshMs`, reload quietly (no loading flash) on that interval while the tab is visible,
+ * and straight away when you come back to the tab after at least that long. */
+export function useApi<T = any>(path: string | null, opts?: { refreshMs?: number }) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(!!path);
-  const load = useCallback(async () => {
+  const last = useRef(0);
+  const load = useCallback(async (silent?: boolean) => {
     if (!path) return;
-    setLoading(true);
+    if (silent !== true) setLoading(true);
     try {
       setData(await api<T>(path));
       setError(null);
+      last.current = Date.now();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (silent !== true) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (silent !== true) setLoading(false);
     }
   }, [path]);
   useEffect(() => {
     load();
   }, [load]);
-  return { data, error, loading, reload: load, setData };
+  const every = opts?.refreshMs;
+  useEffect(() => {
+    if (!every || !path) return;
+    const tick = () => { if (document.visibilityState === "visible") load(true); };
+    const id = setInterval(tick, every);
+    const onShow = () => { if (document.visibilityState === "visible" && Date.now() - last.current >= every) load(true); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onShow); };
+  }, [every, path, load]);
+  const reload = useCallback(() => load(), [load]);
+  return { data, error, loading, reload, setData };
 }

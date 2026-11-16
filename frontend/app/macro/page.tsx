@@ -9,6 +9,8 @@ import { Empty, ErrorBox, Loading, PageTitle, Panel } from "@/components/ui";
 import { patch, useApi } from "@/lib/api";
 import { dateTime, num } from "@/lib/format";
 
+const REFRESH_MS = 3 * 60 * 1000; // re-read the numbers every 3 minutes while the page is open
+
 const CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "ZAR", "MXN", "CNY"];
 const BULL = "bg-bull text-white";
 const BEAR = "bg-bear text-white";
@@ -62,7 +64,7 @@ function Gauge({ pct, label, suffix = "%" }: { pct: number | null; label: string
 }
 
 function Regime() {
-  const { data, error, loading } = useApi<any>("/api/macro/regime");
+  const { data, error, loading } = useApi<any>("/api/macro/regime", { refreshMs: REFRESH_MS });
   const [pick, setPick] = useState<string>("");
   const hist: any[] = data?.history || [];
   const cur = data?.current;
@@ -118,7 +120,7 @@ function ScoreTable({ title, head, rows }: { title: string; head: string; rows: 
 
 function Heatmap() {
   const [ccy, setCcy] = useState("USD");
-  const { data: d, error, loading, reload } = useApi<any>(`/api/macro/heatmap?currency=${ccy}`);
+  const { data: d, error, loading, reload } = useApi<any>(`/api/macro/heatmap?currency=${ccy}`, { refreshMs: REFRESH_MS });
   const save = (code: string, field: string) => async (v: string | null, per: string | undefined, reason: string | null) => {
     await patch(`/api/macro/indicators/${code}`, { field, value: v, period: per, reason });
     reload();
