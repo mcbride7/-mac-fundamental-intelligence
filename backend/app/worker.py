@@ -24,8 +24,8 @@ celery_app.conf.beat_schedule = {
     "prices-hourly": {"task": "app.worker.run_source_task", "schedule": crontab(minute=2), "args": ["twelvedata"]},
     # FMP free plan = 250 requests a day; this uses about 8
     "fmp-bars-hourly": {"task": "app.worker.run_source_task", "schedule": crontab(minute=7), "args": ["fmp_bars"]},
-    # every 30 minutes so actuals land soon after release (48 requests a day; FMP Starter allows 300 a minute)
-    "fmp-calendar": {"task": "app.worker.run_source_task", "schedule": crontab(minute="4,34"), "args": ["fmp"]},
+    # four times an hour (:04, :17, :34, :50) so actuals land soon after release (~96 requests a day)
+    "fmp-calendar": {"task": "app.worker.run_source_task", "schedule": crontab(minute="4,17,34,50"), "args": ["fmp"]},
     "calendar-hourly": {"task": "app.worker.run_source_task", "schedule": crontab(minute=10), "args": ["finnhub"]},
     "eurostat-6h": {"task": "app.worker.run_source_task", "schedule": crontab(minute=25, hour="*/6"),
                     "args": ["eurostat"]},
