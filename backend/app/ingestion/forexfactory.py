@@ -238,12 +238,13 @@ def store(db: Session, items: list[dict]) -> tuple[int, int]:
             when = datetime.fromisoformat(item["date"]).astimezone(timezone.utc)
         except (KeyError, TypeError, ValueError):
             continue
-        period = reference_period(ind.frequency, when, title)
-        ev = da.event_for(db, ind.id, period)
+        # an event FMP already put on the calendar at about this time (filed under FMP's period) is the same
+        # release: join it rather than add a second one under the release-date guess
+        from app.ingestion.markets import calendar_event
+
+        ev = calendar_event(db, ind, when, title)
         if ev is None:
-            ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance)
-            db.add(ev)
-            db.flush()
+            continue
         # FMP is the main calendar: Forex Factory only fills what FMP hasn't set (and never a typed-in forecast)
         if ev.scheduled_at is None:
             ev.scheduled_at = when

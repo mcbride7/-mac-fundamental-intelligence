@@ -1,6 +1,7 @@
 """Market data (Twelve Data) and economic calendar (Finnhub) connectors."""
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -157,6 +158,57 @@ def _tag_of_period(period: str) -> str | None:
         return None
 
 
+def tagged_period(frequency: str | None, when: datetime | None, name: str) -> str | None:
+    """The period the provider printed on the release, "(Oct)" -> "2026-10", "(Q3)" -> "2026Q3", with the year
+    from the release date (an "(Dec)" print in January is last year's). None when there is no tag or the
+    indicator is weekly / per meeting."""
+    tag = period_tag(name)
+    if not tag or when is None or frequency not in ("monthly", "quarterly"):
+        return None
+    y, m = when.year, when.month
+    if tag.startswith("q"):
+        if frequency != "quarterly":
+            return None
+        q = int(tag[1])
+        return f"{y if (q - 1) * 3 + 1 <= m else y - 1}Q{q}"
+    if frequency != "monthly":
+        return None
+    mon = _MONTHS.split("|").index(tag) + 1
+    return f"{y if mon <= m else y - 1}-{mon:02d}"
+
+
+def _release_count(db: Session, event_id: int) -> int:
+    from sqlalchemy import func
+
+    from app.models.core import EconomicRelease
+
+    return db.scalar(select(func.count()).select_from(EconomicRelease).where(EconomicRelease.event_id == event_id)) or 0
+
+
+def fmp_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEvent | None:
+    """The calendar event an FMP print fills, filed under the period FMP printed: "Consumer Confidence (Oct)"
+    released 29 October is October, not September as the release-date rule guesses. An event that the
+    calendar filed under a wrong period is corrected (when nothing is stored on it yet)."""
+    ev = calendar_event(db, ind, when, name)
+    want = tagged_period(ind.frequency, when, name)
+    if ev is None or not want or ev.reference_period == want:
+        return ev
+    right = da.event_for(db, ind.id, want)
+    if right is not None:
+        if right.scheduled_at is None or ev.scheduled_at == right.scheduled_at:
+            right.scheduled_at = ev.scheduled_at
+        return right
+    if _release_count(db, ev.id) == 0:
+        ev.reference_period = want
+        db.flush()
+        return ev
+    right = EconomicEvent(indicator_id=ind.id, reference_period=want, importance=ev.importance,
+                          scheduled_at=when or ev.scheduled_at)
+    db.add(right)
+    db.flush()
+    return right
+
+
 def calendar_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEvent | None:
     """The calendar event a provider's release belongs to. First the event already on the calendar for this
     indicator at (about) the same release time, whatever period it was filed under; otherwise the period by
@@ -188,6 +240,9 @@ def calendar_event(db: Session, ind, when: datetime | None, name: str) -> Econom
 def run_finnhub(db: Session, src: Source) -> int:
     from app.ingestion.fred import upsert_official_release
 
+    if settings.fmp_api_key:
+        logging.getLogger(__name__).info("Finnhub calendar: not needed, FMP is the economic calendar")
+        return 0
     if not settings.finnhub_api_key:
         raise SourceUnavailable("FINNHUB_API_KEY not set")
     today = date.today()
@@ -301,7 +356,7 @@ def run_fmp(db: Session, src: Source) -> int:
             when = datetime.fromisoformat(str(item.get("date")).replace(" ", "T")[:19]).replace(tzinfo=timezone.utc)
         except ValueError:
             when = None
-        ev = calendar_event(db, ind, when, name)
+        ev = fmp_event(db, ind, when, name)
         if ev is None or ev.id in filled:
             continue
         filled.add(ev.id)

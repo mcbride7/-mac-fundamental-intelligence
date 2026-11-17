@@ -144,3 +144,64 @@ def test_calendar_figure_wins_over_other_sources(db):
     upsert_official_release(db, other, gdp, "2026Q4", 0.5, None, when)                # calendar hasn't got it yet
     db.commit()
     assert da.latest_current(db, gdp.id).actual == 0.5
+
+
+@pytest.mark.parametrize("freq,when,name,period", [
+    ("monthly", datetime(2026, 10, 29, 5, tzinfo=timezone.utc), "Consumer Confidence (Oct)", "2026-10"),
+    ("monthly", datetime(2026, 11, 5, 0, 30, tzinfo=timezone.utc), "S&P Global Services PMI (Oct)", "2026-10"),
+    ("monthly", datetime(2027, 1, 12, 7, tzinfo=timezone.utc), "Inflation Rate YoY (Dec)", "2026-12"),
+    ("quarterly", datetime(2026, 11, 15, 23, 50, tzinfo=timezone.utc), "GDP Growth Rate QoQ (Q3)", "2026Q3"),
+    ("quarterly", datetime(2027, 2, 15, 23, 50, tzinfo=timezone.utc), "GDP Growth Rate QoQ (Q4)", "2026Q4"),
+    ("weekly", datetime(2026, 11, 12, 13, 30, tzinfo=timezone.utc), "Initial Jobless Claims (Nov/07)", None),
+    ("monthly", datetime(2026, 11, 12, 13, 30, tzinfo=timezone.utc), "Non Farm Payrolls", None),
+])
+def test_period_comes_from_fmp_tag(freq, when, name, period):
+    from app.ingestion.markets import tagged_period
+
+    assert tagged_period(freq, when, name) == period
+
+
+def test_fmp_files_release_under_its_printed_period(db, monkeypatch):
+    """Japan's October consumer confidence comes out on 29 October. The release-date rule filed the calendar
+    event as September; FMP's "(Oct)" moves it to October and the figure is stored there."""
+    from sqlalchemy import select
+
+    from app.config import settings
+    from app.ingestion import markets
+    from app.models import EconomicEvent, Source
+    from app.services import data_access as da
+
+    src = db.scalar(select(Source).where(Source.key == "fmp"))
+    ind = da.indicator_by_code(db, "JP_CONSUMER_CONF")
+    t = datetime.now(timezone.utc).replace(hour=5, minute=0, second=0, microsecond=0) - timedelta(days=2)
+    prev = (t.replace(day=1) - timedelta(days=1))
+    wrong, right = f"{prev.year}-{prev.month:02d}", f"{t.year}-{t.month:02d}"
+    db.add(EconomicEvent(indicator_id=ind.id, reference_period=wrong, importance="high", scheduled_at=t))
+    db.commit()
+
+    mon = t.strftime("%b")
+    when = t.strftime("%Y-%m-%d %H:%M:%S")
+    first = (date.today() - timedelta(days=markets.FMP_LOOKBACK_DAYS)).isoformat() + " 00:00:00"
+    rows = [_item(f"Consumer Confidence ({mon})", "JP", "%", 35.0, 35.1, when=when)] + \
+        [_item("Some Auction", "US", "%", 1.0, when=first) for _ in range(120)]
+    monkeypatch.setattr(settings, "fmp_api_key", "x")
+    monkeypatch.setattr(markets, "_fmp_get", lambda params: rows)
+    markets.run_fmp(db, src)
+
+    rel = da.latest_current(db, ind.id)
+    assert rel.reference_period == right and rel.actual == 35.0
+    assert da.event_for(db, ind.id, wrong) is None
+    assert db.scalars(select(EconomicEvent).where(EconomicEvent.indicator_id == ind.id)).all() == \
+        [da.event_for(db, ind.id, right)]
+
+
+def test_finnhub_stands_down_when_fmp_is_set(db, monkeypatch):
+    from sqlalchemy import select
+
+    from app.config import settings
+    from app.ingestion import markets
+    from app.models import Source
+
+    monkeypatch.setattr(settings, "fmp_api_key", "x")
+    src = db.scalar(select(Source).where(Source.key == "finnhub"))
+    assert markets.run_finnhub(db, src) == 0
