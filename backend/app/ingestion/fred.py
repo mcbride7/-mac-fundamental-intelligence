@@ -102,6 +102,10 @@ def upsert_official_release(db: Session, src: Source, ind: Indicator, period: st
             return 0
         if abs(cur.actual - value) < 1e-6:
             return 0
+        if cur.source_id != src.id and _rank(db, cur.source_id) < source_rank(src.key):
+            # the economic calendar wins: FRED / OECD or a statistics office printing the same period
+            # with other rounding or a different calculation never replaces the calendar's figure
+            return 0
         # official revision: keep the old print, add a new revision row
         rev = EconomicRelease(event_id=cur.event_id, indicator_id=ind.id, reference_period=period, actual=value,
                               previous=cur.previous, consensus=cur.consensus, unit=ind.unit,
@@ -128,6 +132,20 @@ def upsert_official_release(db: Session, src: Source, ind: Indicator, period: st
                            source_id=src.id, source_name=src.name, input_method="automated",
                            verification_status=VerificationStatus.VERIFIED.value))
     return 1
+
+
+# which source's figure stands when two report the same period: the economic calendar first (FMP, then
+# Finnhub / Forex Factory), then everything else (FRED, OECD, statistics offices, central banks)
+CALENDAR_FIRST = ("fmp", "finnhub", "forexfactory")
+
+
+def source_rank(key: str | None) -> int:
+    return CALENDAR_FIRST.index(key) if key in CALENDAR_FIRST else len(CALENDAR_FIRST)
+
+
+def _rank(db: Session, source_id: int | None) -> int:
+    s = db.get(Source, source_id) if source_id else None
+    return source_rank(s.key if s else None)
 
 
 def _period_end(period: str) -> datetime:

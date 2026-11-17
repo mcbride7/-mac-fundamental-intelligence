@@ -113,3 +113,34 @@ def test_run_fmp_keeps_headline_and_removes_old_wrong_matches(db, monkeypatch):
     assert da.current_release(db, cpi.id, "2099-01") is None
     assert da.event_for(db, cpi.id, "2099-01") is None
     assert db.scalar(select(EconomicEvent).where(EconomicEvent.indicator_id == ism.id)) is not None
+
+
+def test_calendar_figure_wins_over_other_sources(db):
+    """The economic calendar comes first: FRED / OECD printing the same period with other rounding never
+    replaces it, the calendar replaces theirs, and they still fill a period the calendar hasn't got."""
+    from sqlalchemy import select
+
+    from app.ingestion.fred import upsert_official_release
+    from app.models import Source
+    from app.services import data_access as da
+
+    fmp = db.scalar(select(Source).where(Source.key == "fmp"))
+    other = db.scalar(select(Source).where(Source.key.notin_(["fmp", "finnhub", "forexfactory", "manual"])))
+    gdp = da.indicator_by_code(db, "JP_GDP_YOY")
+    when = datetime(2026, 11, 15, 23, 50, tzinfo=timezone.utc)
+
+    upsert_official_release(db, fmp, gdp, "2026Q3", -0.1, 0.3, when)
+    db.flush()
+    assert upsert_official_release(db, other, gdp, "2026Q3", -0.06, None, when) == 0   # can't replace it
+    db.commit()
+    assert da.latest_current(db, gdp.id).actual == -0.1
+
+    upsert_official_release(db, other, gdp, "2026Q2", 1.6, None, when)                # other source first
+    db.flush()
+    upsert_official_release(db, fmp, gdp, "2026Q2", 1.7, None, when)                  # calendar replaces it
+    db.commit()
+    assert da.current_release(db, gdp.id, "2026Q2").actual == 1.7
+
+    upsert_official_release(db, other, gdp, "2026Q4", 0.5, None, when)                # calendar hasn't got it yet
+    db.commit()
+    assert da.latest_current(db, gdp.id).actual == 0.5
