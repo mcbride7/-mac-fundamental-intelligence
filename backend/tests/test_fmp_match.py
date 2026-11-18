@@ -205,3 +205,87 @@ def test_finnhub_stands_down_when_fmp_is_set(db, monkeypatch):
     monkeypatch.setattr(settings, "fmp_api_key", "x")
     src = db.scalar(select(Source).where(Source.key == "finnhub"))
     assert markets.run_finnhub(db, src) == 0
+
+
+def _typed(db, ind, period, value, made):
+    """A number typed in on the Macro page the old way (period = the month it was typed in)."""
+    from app.models import EconomicEvent, EconomicRelease
+
+    ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance="low", scheduled_at=made)
+    db.add(ev)
+    db.flush()
+    rel = EconomicRelease(event_id=ev.id, indicator_id=ind.id, reference_period=period, actual=value,
+                          unit=ind.unit, released_at=made, revision_number=0, source_name="manual",
+                          input_method="typed", verification_status="UNVERIFIED", created_at=made)
+    db.add(rel)
+    db.flush()
+    return rel
+
+
+def test_typed_number_filed_under_typing_month_is_moved(db):
+    """UK PPI input 8.3% typed on 2 Nov was filed as 2026-11 and hid the calendar's October 10.8%.
+    It is September's figure (October's came out on 18 Nov): it moves there and October shows."""
+    from app.ingestion.fred import upsert_official_release
+    from app.models import EconomicEvent, Source
+    from app.services import data_access as da
+    from app.services.macro_edit import fix_too_new_periods
+    from sqlalchemy import select
+
+    fmp = db.scalar(select(Source).where(Source.key == "fmp"))
+    ind = da.indicator_by_code(db, "GB_PPI_YOY")
+    db.add(EconomicEvent(indicator_id=ind.id, reference_period="2026-09", importance="low",
+                         scheduled_at=datetime(2026, 10, 15, 6, tzinfo=timezone.utc)))
+    db.flush()
+    upsert_official_release(db, fmp, ind, "2026-10", 10.8, 9.1, datetime(2026, 11, 18, 7, tzinfo=timezone.utc))
+    ev10 = da.event_for(db, ind.id, "2026-10")
+    ev10.scheduled_at = datetime(2026, 11, 18, 7, tzinfo=timezone.utc)
+    typed = _typed(db, ind, "2026-11", 8.3, datetime(2026, 11, 2, 9, tzinfo=timezone.utc))
+    db.commit()
+    assert da.latest_current(db, ind.id).actual == 8.3   # the bug
+
+    assert fix_too_new_periods(db) == 1
+    assert da.latest_current(db, ind.id).actual == 10.8
+    assert da.current_release(db, ind.id, "2026-09").id == typed.id
+    assert da.event_for(db, ind.id, "2026-11") is None
+    assert fix_too_new_periods(db) == 0                    # nothing left to move
+
+
+def test_typed_number_where_calendar_has_the_period_is_retired(db):
+    """UK GDP y/y typed on 2 Nov became 2026Q4; the calendar already holds Q2 (the latest out then)."""
+    from app.ingestion.fred import upsert_official_release
+    from app.models import Source
+    from app.services import data_access as da
+    from app.services.macro_edit import fix_too_new_periods
+    from sqlalchemy import select
+
+    fmp = db.scalar(select(Source).where(Source.key == "fmp"))
+    ind = da.indicator_by_code(db, "GB_GDP_YOY")
+    upsert_official_release(db, fmp, ind, "2026Q2", 1.4, None, datetime(2026, 8, 14, 6, tzinfo=timezone.utc))
+    da.event_for(db, ind.id, "2026Q2").scheduled_at = datetime(2026, 8, 14, 6, tzinfo=timezone.utc)
+    upsert_official_release(db, fmp, ind, "2026Q3", 1.9, 1.9, datetime(2026, 11, 12, 7, tzinfo=timezone.utc))
+    da.event_for(db, ind.id, "2026Q3").scheduled_at = datetime(2026, 11, 12, 7, tzinfo=timezone.utc)
+    typed = _typed(db, ind, "2026Q4", 1.4, datetime(2026, 11, 2, 9, tzinfo=timezone.utc))
+    db.commit()
+
+    fix_too_new_periods(db)
+    assert da.latest_current(db, ind.id).actual == 1.9
+    db.refresh(typed)
+    assert typed.is_current is False and typed.reference_period == "2026Q2"
+    assert da.event_for(db, ind.id, "2026Q4") is None
+
+
+def test_add_box_suggests_the_last_published_period(db, monkeypatch):
+    from app.services import data_access as da
+    from app.services import macro_edit
+    from app.models import EconomicEvent
+
+    ind = da.indicator_by_code(db, "GB_PPI_YOY")
+    db.add(EconomicEvent(indicator_id=ind.id, reference_period="2026-09", importance="low",
+                         scheduled_at=datetime(2026, 10, 15, 6, tzinfo=timezone.utc)))
+    db.add(EconomicEvent(indicator_id=ind.id, reference_period="2026-10", importance="low",
+                         scheduled_at=datetime(2026, 11, 18, 7, tzinfo=timezone.utc)))
+    db.commit()
+    monkeypatch.setattr(macro_edit, "utcnow", lambda: datetime(2026, 11, 2, 9, tzinfo=timezone.utc))
+    assert macro_edit.default_period(ind, db) == "2026-09"
+    monkeypatch.setattr(macro_edit, "utcnow", lambda: datetime(2026, 11, 20, 9, tzinfo=timezone.utc))
+    assert macro_edit.default_period(ind, db) == "2026-10"

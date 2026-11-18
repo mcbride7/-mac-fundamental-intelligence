@@ -83,7 +83,7 @@ def rows_for(db: Session, currency: str, now: datetime | None = None) -> list[di
                         "unit": ind.unit, "higher_is": ind.higher_is, "currency_impact": "Neutral",
                         "stocks_impact": "Neutral", "status": None, "event_id": ev.id if ev else None,
                         "survey": kind, "frequency": ind.frequency, "lean": None,
-                        "edit_period": ev.reference_period if ev else macro_edit.default_period(ind),
+                        "edit_period": ev.reference_period if ev else macro_edit.default_period(ind, db),
                         "read": "No reading yet"})
             continue
         ev = db.get(EconomicEvent, rel.event_id) if rel.event_id else da.event_for(db, ind.id, rel.reference_period)

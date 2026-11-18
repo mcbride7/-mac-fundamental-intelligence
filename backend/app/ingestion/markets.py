@@ -327,6 +327,9 @@ def run_fmp(db: Session, src: Source) -> int:
 
     if not settings.fmp_api_key:
         raise SourceUnavailable("FMP_API_KEY not set (free key from financialmodelingprep.com)")
+    from app.services.macro_edit import fix_too_new_periods
+
+    fix_too_new_periods(db)  # typed-in numbers filed under the month they were typed in
     today = date.today()
     start = today - timedelta(days=FMP_LOOKBACK_DAYS)
     rows = _fmp_get({"from": start.isoformat(), "to": (today + timedelta(days=21)).isoformat(),
