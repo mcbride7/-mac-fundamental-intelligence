@@ -81,7 +81,8 @@ FMP_ALIASES = {
     "EA_SERVICES_PMI": ["s&p global services pmi", "hcob services pmi"],
     "EA_PMI_COMPOSITE": ["s&p global composite pmi", "hcob composite pmi"],
     "GB_MANUF_PMI": ["s&p global manufacturing pmi"], "GB_SERVICES_PMI": ["s&p global services pmi"],
-    "GB_CONSUMER_CONF": ["gfk consumer confidence"],
+    "GB_CONSUMER_CONF": ["gfk consumer confidence", "consumer confidence"],
+    "CH_CONSUMER_CONF": ["consumer confidence"],  # SECO's monthly reading (the "(Q4)" one is quarterly)
     "JP_MANUF_PMI": ["s&p global manufacturing pmi", "jibun bank manufacturing pmi"],
     "JP_SERVICES_PMI": ["s&p global services pmi", "jibun bank services pmi"],
     "AU_MANUF_PMI": ["s&p global manufacturing pmi"], "AU_SERVICES_PMI": ["s&p global services pmi"],
@@ -327,9 +328,6 @@ def run_fmp(db: Session, src: Source) -> int:
 
     if not settings.fmp_api_key:
         raise SourceUnavailable("FMP_API_KEY not set (free key from financialmodelingprep.com)")
-    from app.services.macro_edit import fix_too_new_periods
-
-    fix_too_new_periods(db)  # typed-in numbers filed under the month they were typed in
     today = date.today()
     start = today - timedelta(days=FMP_LOOKBACK_DAYS)
     rows = _fmp_get({"from": start.isoformat(), "to": (today + timedelta(days=21)).isoformat(),
@@ -385,6 +383,11 @@ def run_fmp(db: Session, src: Source) -> int:
             written.add((ind.id, period))
         n += 1
     db.flush()
+    # typed-in numbers filed under the month they were typed in: placed once FMP's events (with their
+    # release dates) are on the calendar, so each goes to the period that was really out at the time
+    from app.services.macro_edit import fix_too_new_periods
+
+    n += fix_too_new_periods(db)
     # only where FMP's reply really covers the dates (a short or cut-off reply never removes anything)
     seen = sorted(str(i.get("date"))[:10] for i in rows if isinstance(i, dict) and i.get("date"))
     if len(rows) >= 100 and seen and seen[0] <= (start + timedelta(days=2)).isoformat():

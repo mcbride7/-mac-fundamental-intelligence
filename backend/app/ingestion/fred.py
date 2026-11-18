@@ -94,15 +94,20 @@ def upsert_official_release(db: Session, src: Source, ind: Indicator, period: st
     Existing manual value -> reconcile (match = VERIFIED, mismatch = CONFLICT)."""
     cur = da.current_release(db, ind.id, period)
     if cur is not None:
-        if cur.input_method != "automated":
+        typed_over = (cur.input_method != "automated" and source_rank(src.key) == 0
+                      and cur.verification_status == VerificationStatus.UNVERIFIED.value
+                      and abs(cur.actual - value) >= 1e-6)
+        if cur.input_method != "automated" and not typed_over:
             if cur.verification_status in (VerificationStatus.UNVERIFIED.value,
                                            VerificationStatus.USER_CONFIRMED.value):
                 reconcile(db, cur, value, src.key, src.name)
                 return 1
             return 0
+        # (typed_over: the calendar comes first, so its figure replaces a typed-in number nobody confirmed;
+        # one you confirmed yourself still goes to the conflict check above)
         if abs(cur.actual - value) < 1e-6:
             return 0
-        if cur.source_id != src.id and _rank(db, cur.source_id) < source_rank(src.key):
+        if not typed_over and cur.source_id != src.id and _rank(db, cur.source_id) < source_rank(src.key):
             # the economic calendar wins: FRED / OECD or a statistics office printing the same period
             # with other rounding or a different calculation never replaces the calendar's figure
             return 0

@@ -289,3 +289,67 @@ def test_add_box_suggests_the_last_published_period(db, monkeypatch):
     assert macro_edit.default_period(ind, db) == "2026-09"
     monkeypatch.setattr(macro_edit, "utcnow", lambda: datetime(2026, 11, 20, 9, tzinfo=timezone.utc))
     assert macro_edit.default_period(ind, db) == "2026-10"
+
+
+@pytest.mark.parametrize("event,country,code", [
+    ("Interest Rate Decision (Nov)", "AU", "AU_RBA_RATE"),
+    ("BoC Interest Rate Decision", "CA", "CA_BOC_RATE"),
+    ("SNB Interest Rate Decision", "CH", "CH_SNB_RATE"),
+    ("RBNZ Interest Rate Decision", "NZ", "NZ_RBNZ_RATE"),
+    ("Interest Rate Decision (Nov)", "MX", "MX_BANXICO_RATE"),
+    ("Loan Prime Rate 1Y", "CN", "CN_LPR_1Y"),
+    ("Fed Interest Rate Decision", "US", "US_FED_RATE"),
+    ("BoE Interest Rate Decision", "UK", "GB_BOE_RATE"),
+    ("Consumer Confidence (Oct)", "UK", "GB_CONSUMER_CONF"),
+    ("Consumer Confidence (Oct)", "CH", "CH_CONSUMER_CONF"),
+])
+def test_every_central_bank_rate_matches(match, event, country, code):
+    assert match(_item(event, country, "%")) == code
+
+
+def test_calendar_replaces_an_unconfirmed_typed_number(db):
+    """Calendar first: FMP's figure replaces a typed-in number nobody confirmed (no 'conflict' left
+    showing the typed one)."""
+    from sqlalchemy import select
+
+    from app.ingestion.fred import upsert_official_release
+    from app.models import Source
+    from app.services import data_access as da
+
+    fmp = db.scalar(select(Source).where(Source.key == "fmp"))
+    ind = da.indicator_by_code(db, "GB_PPI_YOY")
+    typed = _typed(db, ind, "2026-10", 9.0, datetime(2026, 11, 17, 9, tzinfo=timezone.utc))
+    db.commit()
+    upsert_official_release(db, fmp, ind, "2026-10", 10.8, 9.1, datetime(2026, 11, 18, 7, tzinfo=timezone.utc))
+    db.commit()
+    rel = da.latest_current(db, ind.id)
+    assert rel.actual == 10.8 and rel.input_method == "automated"
+    db.refresh(typed)
+    assert typed.is_current is False
+
+
+def test_only_one_decision_stored_uses_calendar_previous(db):
+    """Banxico cut 6.50 -> 6.25: with one decision stored, FMP's previous rate shows it was a cut."""
+    from sqlalchemy import select
+
+    from app.engines import fundamentals as fnd
+    from app.ingestion import markets
+    from app.models import Source
+
+    src = db.scalar(select(Source).where(Source.key == "fmp"))
+    when = datetime.now(timezone.utc) - timedelta(days=3)
+    first = (date.today() - timedelta(days=markets.FMP_LOOKBACK_DAYS)).isoformat() + " 00:00:00"
+    item = _item("Interest Rate Decision", "MX", "%", 6.25, 6.5, when=when.strftime("%Y-%m-%d %H:%M:%S"))
+    item["previous"] = 6.5
+    rows = [item] + [_item("Some Auction", "US", "%", 1.0, when=first) for _ in range(120)]
+    import app.config as cfg
+    old = cfg.settings.fmp_api_key
+    cfg.settings.fmp_api_key = "x"
+    try:
+        markets._fmp_get, keep = (lambda params: rows), markets._fmp_get
+        markets.run_fmp(db, src)
+    finally:
+        markets._fmp_get = keep
+        cfg.settings.fmp_api_key = old
+    snap = fnd.build(db, "MXN")
+    assert snap.policy_rate == 6.25 and snap.last_decision == "CUT" and snap.last_change_bps == -25

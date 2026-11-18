@@ -29,6 +29,13 @@ def published_period(db: Session, ind: Indicator, at, below: str | None = None) 
     rule = reference_period(ind.frequency or "monthly", at, "")
     cap = min(rule, below) if below else rule
     if ind.frequency in ("monthly", "quarterly"):
+        # a period the calendar shows coming out after `at` wasn't out yet, nor anything after it
+        # (US JOLTS typed on 2 Nov is August's or earlier: September's came out on 3 Nov)
+        nxt = db.scalar(select(func.min(EconomicEvent.reference_period)).where(
+            EconomicEvent.indicator_id == ind.id, EconomicEvent.scheduled_at > at,
+            EconomicEvent.reference_period <= cap))
+        if nxt:
+            cap = _prev(nxt)
         p = db.scalar(select(func.max(EconomicEvent.reference_period)).where(
             EconomicEvent.indicator_id == ind.id, EconomicEvent.scheduled_at <= at,
             EconomicEvent.reference_period <= cap))

@@ -37,7 +37,8 @@ UNEMP = {"US": "US_UNEMPLOYMENT", "EA": "EA_UNEMPLOYMENT", "GB": "GB_UNEMPLOYMEN
 GDP = {"US": "US_GDP_QOQ", "EA": "EA_GDP_QOQ", "GB": "GB_GDP_QOQ", "ZA": "ZA_GDP_QOQ"}
 PMI = {"US": "US_ISM_MANUF", "EA": "EA_PMI_COMPOSITE"}
 POLICY_RATE = {"FED": "US_FED_RATE", "ECB": "EA_ECB_RATE", "BOE": "GB_BOE_RATE", "BOJ": "JP_BOJ_RATE",
-               "SARB": "ZA_SARB_RATE"}
+               "SARB": "ZA_SARB_RATE", "RBA": "AU_RBA_RATE", "BOC": "CA_BOC_RATE", "SNB": "CH_SNB_RATE",
+               "RBNZ": "NZ_RBNZ_RATE", "BANXICO": "MX_BANXICO_RATE", "PBOC": "CN_LPR_1Y"}
 IMPORTANCE_W = {"high": 1.0, "medium": 0.6, "low": 0.3}
 
 
@@ -176,6 +177,10 @@ def build(db: Session, currency: str) -> Snapshot:
                         break
                 else:
                     snap.last_decision = "HOLD"
+                    # only one decision stored yet: the calendar's previous rate tells hike / cut / hold
+                    if rel.previous is not None and abs(rel.actual - rel.previous) > 1e-6:
+                        snap.last_decision = "HIKE" if rel.actual > rel.previous else "CUT"
+                        snap.last_change_bps = round((rel.actual - rel.previous) * 100)
                 change_month = next((b.reference_period for a, b in zip(reversed(hist[:-1]), reversed(hist[1:]))
                                      if abs(b.actual - a.actual) > 1e-6), None)
                 # a decision read from the latest statement (or typed in) that is newer than the last rate change

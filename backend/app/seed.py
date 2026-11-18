@@ -112,6 +112,13 @@ INDICATORS = [
     ('CA_RETAIL_SALES_MOM', 'Canada Retail Sales (m/m)', 'CA', 'CAD', 'consumers', '%', 'monthly', 'medium', 'mom', 'hawkish', ['retail sales'], None, None, 'BOC', None),
     ('CA_IVEY_PMI', 'Canada Ivey PMI', 'CA', 'CAD', 'business', 'index', 'monthly', 'low', 'level', 'hawkish', ['ivey pmi'], None, None, 'BOC', None),
     ('CA_PPI_MOM', 'Canada Producer Prices (m/m)', 'CA', 'CAD', 'inflation', '%', 'monthly', 'low', 'mom', 'hawkish', ['ippi'], None, None, 'BOC', None),
+    # policy rates of the banks that had none: filled by the FMP calendar's rate decisions
+    ('AU_RBA_RATE', 'RBA Cash Rate', 'AU', 'AUD', 'monetary_policy', '%', 'meeting', 'high', 'level', 'hawkish', ['rba interest rate decision', 'interest rate decision', 'rba cash rate'], None, None, 'RBA', 'policy_rate'),
+    ('CA_BOC_RATE', 'BoC Policy Rate', 'CA', 'CAD', 'monetary_policy', '%', 'meeting', 'high', 'level', 'hawkish', ['boc interest rate decision', 'boc rate decision'], None, None, 'BOC', 'policy_rate'),
+    ('CH_SNB_RATE', 'SNB Policy Rate', 'CH', 'CHF', 'monetary_policy', '%', 'meeting', 'high', 'level', 'hawkish', ['snb interest rate decision', 'snb policy rate'], None, None, 'SNB', 'policy_rate'),
+    ('NZ_RBNZ_RATE', 'RBNZ Official Cash Rate', 'NZ', 'NZD', 'monetary_policy', '%', 'meeting', 'high', 'level', 'hawkish', ['rbnz interest rate decision', 'rbnz rate decision'], None, None, 'RBNZ', 'policy_rate'),
+    ('MX_BANXICO_RATE', 'Banxico Policy Rate', 'MX', 'MXN', 'monetary_policy', '%', 'meeting', 'high', 'level', 'hawkish', ['banxico interest rate decision', 'interest rate decision'], None, None, 'BANXICO', 'policy_rate'),
+    ('CN_LPR_1Y', 'China 1-Year Loan Prime Rate', 'CN', 'CNY', 'monetary_policy', '%', 'monthly', 'high', 'level', 'hawkish', ['loan prime rate 1y', '1-year loan prime rate'], None, None, 'PBOC', 'policy_rate'),
     ('AU_GDP_QOQ', 'Australia GDP (q/q)', 'AU', 'AUD', 'growth', '%', 'quarterly', 'high', 'qoq', 'hawkish', ['gdp'], None, None, 'RBA', None),
     ('AU_RETAIL_SALES_MOM', 'Australia Retail Sales (m/m)', 'AU', 'AUD', 'consumers', '%', 'monthly', 'medium', 'mom', 'hawkish', ['retail sales'], None, None, 'RBA', None),
     ('AU_EMPLOYMENT_CHANGE', 'Australia Employment Change', 'AU', 'AUD', 'employment', 'k', 'monthly', 'high', 'level', 'hawkish', ['employment change'], None, None, 'RBA', None),

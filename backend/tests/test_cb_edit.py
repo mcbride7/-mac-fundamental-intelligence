@@ -2,14 +2,15 @@ def _ov(client, code):
     return client.get(f"/api/central-banks/{code}").json()
 
 
-def test_rate_for_bank_without_indicator(client):
+def test_rate_typed_for_boc(client):
+    """Every bank has a policy-rate row now (filled by the FMP calendar); typing one goes through it."""
     e = lambda **b: client.patch("/api/central-banks/BOC/overview", json=b)
-    assert e(field="current_rate", value="2.75").status_code == 200
-    r = e(field="current_rate", value="2.5%")
+    assert e(field="current_rate", value="2.75", period="2026-07").status_code == 200
+    r = e(field="current_rate", value="2.5%", period="2026-09")
     assert r.status_code == 200, r.text
     d = _ov(client, "BOC")
     assert d["current_rate"] == 2.5 and d["previous_rate"] == 2.75
-    assert d["last_decision"] == "CUT" and d["last_change_bps"] == -25 and d["rate_from_indicator"] is False
+    assert d["last_decision"] == "CUT" and d["last_change_bps"] == -25 and d["rate_from_indicator"] is True
     assert e(field="last_decision", value="hold").status_code == 200
     assert _ov(client, "BOC")["last_decision"] == "HOLD"
     assert e(field="current_rate", value="abc").status_code == 400
