@@ -133,7 +133,7 @@ def upsert_official_release(db: Session, src: Source, ind: Indicator, period: st
         db.flush()
     db.add(EconomicRelease(event_id=ev.id, indicator_id=ind.id, reference_period=period, actual=value,
                            previous=ev.previous, consensus=consensus if consensus is not None else ev.consensus,
-                           unit=ind.unit, released_at=released_at or _period_end(period), revision_number=0,
+                           unit=ind.unit, released_at=released_at or min(_period_end(period), utcnow()), revision_number=0,
                            source_id=src.id, source_name=src.name, input_method="automated",
                            verification_status=VerificationStatus.VERIFIED.value))
     return 1

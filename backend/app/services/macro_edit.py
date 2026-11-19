@@ -61,11 +61,66 @@ def _prev(period: str) -> str:
     return f"{y}-{m - 1:02d}" if m > 1 else f"{y - 1}-12"
 
 
+def _start(period: str):
+    from datetime import datetime, timezone
+
+    y = int(period[:4])
+    m = (int(period[-1]) - 1) * 3 + 1 if "Q" in period else int(period[5:7])
+    return datetime(y, m, 1, tzinfo=timezone.utc)
+
+
+def _aware(t):
+    from datetime import timezone
+
+    return t if t is None or t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def _target_period(db: Session, ind: Indicator, rel, made) -> str | None:
+    """The period a typed-in number really belongs to, or None when its period is fine."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.models import EconomicRelease
+
+    p = rel.reference_period or ""
+    own = db.get(EconomicEvent, rel.event_id) if rel.event_id else None
+    at = _aware((own.scheduled_at if own is not None and own.scheduled_at else None) or rel.released_at)
+    # 1. the same release: the calendar filled an event at the same time under another period
+    if at is not None:
+        for ev in db.scalars(select(EconomicEvent).where(
+                EconomicEvent.indicator_id == ind.id, EconomicEvent.reference_period != p,
+                EconomicEvent.scheduled_at >= at - timedelta(hours=18),
+                EconomicEvent.scheduled_at <= at + timedelta(hours=18))).all():
+            if db.scalar(select(EconomicRelease.id).where(
+                    EconomicRelease.event_id == ev.id, EconomicRelease.is_current.is_(True),
+                    EconomicRelease.input_method == "automated")):
+                return ev.reference_period
+    # 2. a period that hadn't started, or was still running, when the number was typed
+    start = _start(p)
+    if start > made:
+        return published_period(db, ind, made)
+    if ind.frequency == "monthly" and (start.year, start.month) == (made.year, made.month) and made.day < 20:
+        return published_period(db, ind, made, below=_prev(p))
+    if ind.frequency == "quarterly" and p == f"{made.year}Q{(made.month - 1) // 3 + 1}":
+        return published_period(db, ind, made, below=_prev(p))
+    # 3. the calendar shows this period (or an earlier one) still to come after the number was typed
+    later = db.scalar(select(EconomicEvent.reference_period).where(
+        EconomicEvent.indicator_id == ind.id, EconomicEvent.reference_period <= p,
+        EconomicEvent.scheduled_at > made + timedelta(hours=18),
+        EconomicEvent.id != (own.id if own is not None else -1)).order_by(EconomicEvent.reference_period))
+    if later:
+        return published_period(db, ind, made, below=_prev(later))
+    return None
+
+
 def fix_too_new_periods(db: Session) -> int:
-    """Numbers typed in on the Macro page before this fix were filed under the month (or quarter) they were
-    typed in: October's UK PPI typed on 2 November became "2026-11", which then sat above the calendar's
-    real figures. Move each to the period before; where the calendar already has that period, the typed copy
-    is retired (kept for the audit trail)."""
+    """Numbers typed in on the Macro page or the calendar that were filed under the wrong period: the month
+    or quarter they were typed in (October's UK PPI typed on 2 November became "2026-11"), a period that
+    hadn't even started (ISM services "2026-12", Japan GDP "2027Q1"), or the period after the release they
+    belong to (Euro Area PPI typed on 29 October as October; September's came out on 5 November). Each is
+    moved to its real period; where the calendar already has that period, the typed copy is retired (kept for
+    the audit trail). Numbers you confirmed are moved too: the period, not the number, was wrong."""
     from sqlalchemy import select
 
     from app.models import EconomicRelease
@@ -75,20 +130,19 @@ def fix_too_new_periods(db: Session) -> int:
     fixed = 0
     for rel in rows:
         ind = db.get(Indicator, rel.indicator_id)
-        made = rel.created_at
+        made = _aware(rel.created_at)
         if ind is None or made is None or ind.frequency not in ("monthly", "quarterly"):
             continue
         p = rel.reference_period or ""
-        if ind.frequency == "monthly":
-            too_new = p == f"{made.year}-{made.month:02d}" and made.day < 20
-        else:
-            too_new = p == f"{made.year}Q{(made.month - 1) // 3 + 1}"
-        if not too_new:
+        try:
+            target = _target_period(db, ind, rel, made)
+        except (ValueError, IndexError):
             continue
-        target = published_period(db, ind, made, below=_prev(p))
+        if not target or target == p:
+            continue
         old_ev = db.get(EconomicEvent, rel.event_id) if rel.event_id else None
         there = da.current_release(db, ind.id, target)
-        if there is not None:
+        if there is not None and there.id != rel.id:
             rel.is_current, rel.verification_status, rel.superseded_by_id = False, "SUPERSEDED", there.id
             if there.event_id:
                 rel.event_id = there.event_id  # so the mislabelled event can go
@@ -108,7 +162,7 @@ def fix_too_new_periods(db: Session) -> int:
         if old_ev is not None and old_ev.reference_period == p:
             from app.ingestion.markets import _event_unused
 
-            if old_ev.consensus_source in (None, "manual") and _event_unused(db, old_ev.id):
+            if old_ev.consensus_source in (None, "manual", "fmp") and _event_unused(db, old_ev.id):
                 db.delete(old_ev)
         fixed += 1
     if fixed:

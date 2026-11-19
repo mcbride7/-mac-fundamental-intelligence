@@ -123,6 +123,8 @@ def fmp_match(item: dict, country: str, refs: list, freq: dict) -> str | None:
         return None
     ref = next((r for r in refs if r.code == code), None)
     low = name.lower()
+    if code == "JP_CORE_CPI_YOY" and "tokyo" in low:
+        return None  # the national figure; Tokyo's early read stays on the calendar only
     if ref is not None:
         names = " ".join([ref.name] + list(ref.aliases or [])).lower()
         for word in ("change", "annualized", "annualised"):
@@ -192,6 +194,13 @@ def fmp_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEve
     calendar filed under a wrong period is corrected (when nothing is stored on it yet)."""
     ev = calendar_event(db, ind, when, name)
     want = tagged_period(ind.frequency, when, name)
+    if ind.frequency == "weekly" and ev is not None and when is not None:
+        import re as _re
+
+        from app.ingestion.forexfactory import reference_period
+
+        if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", ev.reference_period or ""):
+            want = reference_period("weekly", when, name)  # weekly figures are filed by week, not "2026-10"
     if ev is None or not want or ev.reference_period == want:
         return ev
     right = da.event_for(db, ind.id, want)

@@ -353,3 +353,104 @@ def test_only_one_decision_stored_uses_calendar_previous(db):
         cfg.settings.fmp_api_key = old
     snap = fnd.build(db, "MXN")
     assert snap.policy_rate == 6.25 and snap.last_decision == "CUT" and snap.last_change_bps == -25
+
+
+def _fmp_at(db, code, period, value, when):
+    from sqlalchemy import select
+
+    from app.ingestion.fred import upsert_official_release
+    from app.models import Source
+    from app.services import data_access as da
+
+    fmp = db.scalar(select(Source).where(Source.key == "fmp"))
+    ind = da.indicator_by_code(db, code)
+    upsert_official_release(db, fmp, ind, period, value, None, when)
+    da.event_for(db, ind.id, period).scheduled_at = when
+    db.flush()
+    return ind
+
+
+def test_typed_future_period_is_retired_even_if_confirmed(db):
+    """ISM services typed on 1 Nov as '2026-12' (confirmed): that period hadn't started. October's FMP figure shows."""
+    from app.services import data_access as da
+    from app.services.macro_edit import fix_too_new_periods
+
+    ind = _fmp_at(db, "US_ISM_SERVICES", "2026-09", 53.8, datetime(2026, 10, 6, 14, tzinfo=timezone.utc))
+    _fmp_at(db, "US_ISM_SERVICES", "2026-10", 54.5, datetime(2026, 11, 4, 15, tzinfo=timezone.utc))
+    typed = _typed(db, ind, "2026-12", 54.9, datetime(2026, 11, 1, 9, tzinfo=timezone.utc))
+    typed.verification_status = "USER_CONFIRMED"
+    db.commit()
+    assert da.latest_current(db, ind.id).actual == 54.9      # the bug
+    fix_too_new_periods(db)
+    assert da.latest_current(db, ind.id).actual == 54.5
+    db.refresh(typed)
+    assert typed.reference_period == "2026-09" and typed.is_current is False
+    assert da.event_for(db, ind.id, "2026-12") is None
+
+
+def test_typed_on_mislabelled_release_moves_to_fmp_period(db):
+    """Euro Area PPI 8.2% typed (29 Oct) on the calendar row for the 5 Nov release, which was labelled
+    October. FMP filled that 5 Nov release as September: the typed copy goes to September."""
+    from app.models import EconomicEvent
+    from app.services import data_access as da
+    from app.services.macro_edit import fix_too_new_periods
+
+    rel_time = datetime(2026, 11, 5, 10, tzinfo=timezone.utc)
+    ind = _fmp_at(db, "EA_PPI_MOM", "2026-09", 2.5, rel_time)
+    typed = _typed(db, ind, "2026-10", 8.2, datetime(2026, 10, 29, 9, tzinfo=timezone.utc))
+    db.get(EconomicEvent, typed.event_id).scheduled_at = rel_time
+    typed.verification_status = "VERIFIED"
+    db.commit()
+    fix_too_new_periods(db)
+    rel = da.latest_current(db, ind.id)
+    assert rel.reference_period == "2026-09" and rel.actual == 2.5
+    assert da.event_for(db, ind.id, "2026-10") is None
+
+
+def test_typed_rate_for_same_meeting_is_retired(db):
+    """ECB rate typed as '2026-10' for the 29 Oct meeting that FMP filed as '2026-11': one meeting, one row."""
+    from app.models import EconomicEvent
+    from app.services import data_access as da
+    from app.services.macro_edit import fix_too_new_periods
+
+    when = datetime(2026, 10, 29, 13, 15, tzinfo=timezone.utc)
+    ind = _fmp_at(db, "EA_ECB_RATE", "2026-11", 2.5, when)
+    ind.frequency = "monthly"  # the repair handles monthly / quarterly rows
+    typed = _typed(db, ind, "2026-10", 2.5, when)
+    db.get(EconomicEvent, typed.event_id).scheduled_at = when
+    db.commit()
+    fix_too_new_periods(db)
+    db.refresh(typed)
+    assert typed.is_current is False and typed.reference_period == "2026-11"
+
+
+def test_weekly_claims_filed_by_week(db, monkeypatch):
+    """FMP's claims for the week to 7 Nov were filed under an event labelled '2026-10', so 31 Oct showed as
+    newest. The weekly figure goes to its week."""
+    from sqlalchemy import select
+
+    from app.config import settings
+    from app.ingestion import markets
+    from app.models import EconomicEvent, Source
+    from app.services import data_access as da
+
+    src = db.scalar(select(Source).where(Source.key == "fmp"))
+    ind = da.indicator_by_code(db, "US_JOBLESS_CLAIMS")
+    now = datetime.now(timezone.utc).replace(hour=13, minute=30, second=0, microsecond=0)
+    when = now - timedelta(days=(now.weekday() - 3) % 7 or 7)       # last Thursday
+    db.add(EconomicEvent(indicator_id=ind.id, reference_period=f"{when.year}-{when.month:02d}",
+                         importance="high", scheduled_at=when))
+    db.commit()
+    first = (date.today() - timedelta(days=markets.FMP_LOOKBACK_DAYS)).isoformat() + " 00:00:00"
+    rows = [_item("Initial Jobless Claims", "US", "K", 200.0, 195.0, when=when.strftime("%Y-%m-%d %H:%M:%S"))] + \
+        [_item("Some Auction", "US", "%", 1.0, when=first) for _ in range(120)]
+    monkeypatch.setattr(settings, "fmp_api_key", "x")
+    monkeypatch.setattr(markets, "_fmp_get", lambda params: rows)
+    markets.run_fmp(db, src)
+    rel = da.latest_current(db, ind.id)
+    assert rel.actual == 200.0 and len(rel.reference_period) == 10
+
+
+def test_japan_core_cpi_is_the_national_figure(match):
+    assert match(_item("Core Inflation Rate YoY (Sep)", "JP", "%")) == "JP_CORE_CPI_YOY"
+    assert match(_item("Tokyo Core CPI YoY (Oct)", "JP", "%")) is None
