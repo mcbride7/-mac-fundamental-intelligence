@@ -167,8 +167,15 @@ def import_bundled(db: Session) -> int:
 # ---------------------------------------------------------------- CFTC fetch
 
 def fetch_new(db: Session, since: date | None = None) -> list[dict]:
-    last = since or db.scalar(select(func.max(CotWeek.report_date)))
-    start = (last or date(2025, 1, 1) - timedelta(days=1))
+    """Weeks from the CFTC, from 3 weeks before the market that is furthest behind (not the newest week of
+    any market: one market a week ahead used to make every other market skip its new week). The 3 weeks of
+    overlap also pick up the CFTC's corrections; existing weeks are only refreshed."""
+    if since is None:
+        newest = db.execute(select(CotWeek.code, func.max(CotWeek.report_date)).group_by(CotWeek.code)).all()
+        have = {c: d for c, d in newest if c in MARKETS}
+        behind = min(have.values()) if len(have) == len(MARKETS) else None
+        since = behind - timedelta(days=21) if behind else None
+    start = (since or date(2025, 1, 1) - timedelta(days=1))
     codes = ",".join(f"'{c}'" for c in MARKETS)
     where = (f"report_date_as_yyyy_mm_dd > '{start.isoformat()}T00:00:00.000' AND "
              f"cftc_contract_market_code in({codes})")
@@ -254,6 +261,11 @@ def run_cftc(db: Session, src: Source) -> int:
     if failed:
         log.info("COT prices: some FRED series failed: %s", "; ".join(failed))
     log.info("COT: %s new market-weeks, %s prices filled", added, priced)
+    newest = db.scalar(select(func.max(CotWeek.report_date)))
+    if newest is not None and (date.today() - newest).days > 10:
+        # shown on Data health: the CFTC's feed had nothing newer (normally a holiday-delayed release)
+        return added, (f"Newest COT week is {newest:%d %b} (positions as of that Tuesday); the CFTC's data "
+                       "feed had nothing newer yet. Holiday weeks come out on the Monday after.")
     return added
 
 

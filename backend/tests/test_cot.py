@@ -1,7 +1,7 @@
 import io
 import json
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 
 from app.analytics import cot as ca
 from app.services import cot
@@ -48,13 +48,14 @@ def test_cftc_fetch_and_prices(client, db, monkeypatch):
     db.add(IndicatorObservation(series="RISK:gold", obs_date=date(2026, 10, 19), value=2500.0))
     db.commit()
     src = db.query(cot.Source).filter_by(key="cftc").one()
-    assert cot.run_cftc(db, src) == 1
+    n = lambda res: res[0] if isinstance(res, tuple) else res  # (count, note) when the newest week is old
+    assert n(cot.run_cftc(db, src)) == 1
     g = client.get("/api/cot/088691?weeks=2").json()
     assert g["report_date"] == "2026-10-20" and g["spec_net"] == 260000
     assert g["series"][-1]["price"] == 2500.0 and g["series"][-1]["price_source"] == "Twelve Data"
     jpy = client.get("/api/cot/097741?weeks=1").json()["series"][-1]
     assert abs(jpy["price"] - 1 / 150) < 1e-9  # USD per JPY, so a rising line = stronger yen
-    assert cot.run_cftc(db, src) == 0  # nothing new the second time
+    assert n(cot.run_cftc(db, src)) == 0  # nothing new the second time
 
 
 def test_file_import_and_hand_edits(client, db):
@@ -78,3 +79,28 @@ def test_file_import_and_hand_edits(client, db):
     r = client.post("/api/cot/122741/prices", json={"text": "2026-10-15, 0.0561\nnot a line\n2020-01-01, 1"})
     assert r.json()["saved"] == 1 and len(r.json()["skipped"]) == 2
     assert client.post("/api/cot/import", files={"file": ("x.csv", b"a,b\n1,2", "text/csv")}).status_code == 400
+
+
+def test_one_market_ahead_never_holds_the_others_back(db, monkeypatch):
+    """A week imported or typed for one market (ZAR 10 Nov) made the CFTC fetch start after 10 Nov for every
+    market, so the others never got their 10 Nov week. The fetch now starts 3 weeks before the market that is
+    furthest behind."""
+    from app.models import CotWeek
+
+    seen = {}
+
+    class R:
+        def json(self): return []
+
+    def fake_get(url, params=None, retries=2):
+        seen["where"] = params["$where"]
+        return R()
+
+    cot.import_bundled(db)
+    behind = db.scalar(cot.select(cot.func.max(CotWeek.report_date)))
+    db.add(CotWeek(code="122741", report_date=behind + timedelta(days=28), oi=1, ncl=1, ncs=1, cl=1, cs=1,
+                   input_method="manual"))
+    db.commit()
+    monkeypatch.setattr(cot, "http_get", fake_get)
+    cot.fetch_new(db)
+    assert (behind - timedelta(days=21)).isoformat() in seen["where"]
