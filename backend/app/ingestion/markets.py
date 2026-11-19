@@ -203,7 +203,7 @@ def fmp_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEve
             want = reference_period("weekly", when, name)  # weekly figures are filed by week, not "2026-10"
     if ev is None or not want or ev.reference_period == want:
         return ev
-    right = da.event_for(db, ind.id, want)
+    right = da.event_for_saved(db, ind.id, want)
     if right is not None:
         if right.scheduled_at is None or ev.scheduled_at == right.scheduled_at:
             right.scheduled_at = ev.scheduled_at
@@ -212,11 +212,7 @@ def fmp_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEve
         ev.reference_period = want
         db.flush()
         return ev
-    right = EconomicEvent(indicator_id=ind.id, reference_period=want, importance=ev.importance,
-                          scheduled_at=when or ev.scheduled_at)
-    db.add(right)
-    db.flush()
-    return right
+    return da.get_or_create_event(db, ind.id, want, importance=ev.importance, scheduled_at=when or ev.scheduled_at)
 
 
 def calendar_event(db: Session, ind, when: datetime | None, name: str) -> EconomicEvent | None:
@@ -239,12 +235,7 @@ def calendar_event(db: Session, ind, when: datetime | None, name: str) -> Econom
         period, _ = detect_period(name)
         if not period:
             return None
-    ev = da.event_for(db, ind.id, period)
-    if ev is None:
-        ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance)
-        db.add(ev)
-        db.flush()
-    return ev
+    return da.get_or_create_event(db, ind.id, period, importance=ind.importance)
 
 
 def run_finnhub(db: Session, src: Source) -> int:
@@ -344,6 +335,7 @@ def run_fmp(db: Session, src: Source) -> int:
     refs = fmp_refs(da.indicator_refs(db))
     freq = dict(db.execute(select(Indicator.code, Indicator.frequency)).all())
     n = 0
+    skipped: list[str] = []
     filled: set[int] = set()  # events already filled this run: FMP repeats a release under two names
     written: set[tuple[int, str]] = set()
     matched: dict[tuple[str, str], list[dict]] = {}
@@ -357,52 +349,63 @@ def run_fmp(db: Session, src: Source) -> int:
         if code:
             matched.setdefault((code, str(item.get("date"))), []).append(item)
     for (code, _), group in matched.items():
-        item = next((g for g in group if g.get("actual") is not None), group[0])
-        name = item.get("event") or ""
-        ind = da.indicator_by_code(db, code)
-        if ind is None:
-            continue
         try:
-            when = datetime.fromisoformat(str(item.get("date")).replace(" ", "T")[:19]).replace(tzinfo=timezone.utc)
-        except ValueError:
-            when = None
-        ev = fmp_event(db, ind, when, name)
-        if ev is None or ev.id in filled:
-            continue
-        filled.add(ev.id)
-        period = ev.reference_period
-        if len(group) > 1:
-            # one release, two prints (Canada's GDP: the month just gone and a flash for the next):
-            # the one for the period the calendar event is filed under
-            want = _tag_of_period(period)
-            item = next((g for g in group if period_tag(g.get("event") or "") == want), item)
-        # FMP is the main calendar: its time, forecast and previous figure replace Forex Factory's
-        # (a forecast you typed in yourself still wins)
-        if when:
-            ev.scheduled_at = when
-        imp = {"high": "high", "medium": "medium", "low": "low"}.get(str(item.get("impact") or "").lower())
-        if imp:
-            ev.importance = imp
-        if item.get("estimate") is not None and ev.consensus_source != "manual":
-            ev.consensus, ev.consensus_source = float(item["estimate"]), "fmp"
-        if item.get("previous") is not None:
-            ev.previous = float(item["previous"])
-        if item.get("actual") is not None:
-            n += upsert_official_release(db, src, ind, period, float(item["actual"]), ev.consensus, when)
-            written.add((ind.id, period))
-        n += 1
+            with db.begin_nested():  # one bad release is skipped, never the whole run
+                item = next((g for g in group if g.get("actual") is not None), group[0])
+                name = item.get("event") or ""
+                ind = da.indicator_by_code(db, code)
+                if ind is None:
+                    continue
+                try:
+                    when = datetime.fromisoformat(str(item.get("date")).replace(" ", "T")[:19]).replace(tzinfo=timezone.utc)
+                except ValueError:
+                    when = None
+                ev = fmp_event(db, ind, when, name)
+                if ev is None or ev.id in filled:
+                    continue
+                filled.add(ev.id)
+                period = ev.reference_period
+                if len(group) > 1:
+                    # one release, two prints (Canada's GDP: the month just gone and a flash for the next):
+                    # the one for the period the calendar event is filed under
+                    want = _tag_of_period(period)
+                    item = next((g for g in group if period_tag(g.get("event") or "") == want), item)
+                # FMP is the main calendar: its time, forecast and previous figure replace Forex Factory's
+                # (a forecast you typed in yourself still wins)
+                if when:
+                    ev.scheduled_at = when
+                imp = {"high": "high", "medium": "medium", "low": "low"}.get(str(item.get("impact") or "").lower())
+                if imp:
+                    ev.importance = imp
+                if item.get("estimate") is not None and ev.consensus_source != "manual":
+                    ev.consensus, ev.consensus_source = float(item["estimate"]), "fmp"
+                if item.get("previous") is not None:
+                    ev.previous = float(item["previous"])
+                if item.get("actual") is not None:
+                    n += upsert_official_release(db, src, ind, period, float(item["actual"]), ev.consensus, when)
+                    written.add((ind.id, period))
+                n += 1
+        except Exception as exc:  # noqa: BLE001
+            skipped.append(f"{code}: {str(exc).splitlines()[0][:120]}")
+            logging.getLogger(__name__).warning("FMP calendar: skipped %s: %s", code, exc)
     db.flush()
     # typed-in numbers filed under the month they were typed in: placed once FMP's events (with their
     # release dates) are on the calendar, so each goes to the period that was really out at the time
     from app.services.macro_edit import fix_too_new_periods
 
-    n += fix_too_new_periods(db)
+    try:
+        with db.begin_nested():
+            n += fix_too_new_periods(db, commit=False)
+    except Exception as exc:  # noqa: BLE001
+        skipped.append(f"typed-number repair: {str(exc).splitlines()[0][:120]}")
     # only where FMP's reply really covers the dates (a short or cut-off reply never removes anything)
     seen = sorted(str(i.get("date"))[:10] for i in rows if isinstance(i, dict) and i.get("date"))
     if len(rows) >= 100 and seen and seen[0] <= (start + timedelta(days=2)).isoformat():
         since = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
         n += _drop_bad_fmp(db, src, since, written, filled)
     db.commit()
+    if skipped:  # shown on Data health; everything else was saved
+        return n, f"{len(skipped)} release(s) skipped: " + "; ".join(skipped[:3])
     return n
 
 

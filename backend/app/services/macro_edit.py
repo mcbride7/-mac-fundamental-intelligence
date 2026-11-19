@@ -96,7 +96,11 @@ def _target_period(db: Session, ind: Indicator, rel, made) -> str | None:
                     EconomicRelease.event_id == ev.id, EconomicRelease.is_current.is_(True),
                     EconomicRelease.input_method == "automated")):
                 return ev.reference_period
-    # 2. a period that hadn't started, or was still running, when the number was typed
+    # 2. typed in before its own release came out (the calendar now dates that release later)
+    if own is not None and own.scheduled_at is not None and _aware(own.scheduled_at) > made + timedelta(hours=18):
+        target = published_period(db, ind, made, below=_prev(p))
+        return target if target != p else _prev(p)
+    # 3. a period that hadn't started, or was still running, when the number was typed
     start = _start(p)
     if start > made:
         return published_period(db, ind, made)
@@ -104,7 +108,7 @@ def _target_period(db: Session, ind: Indicator, rel, made) -> str | None:
         return published_period(db, ind, made, below=_prev(p))
     if ind.frequency == "quarterly" and p == f"{made.year}Q{(made.month - 1) // 3 + 1}":
         return published_period(db, ind, made, below=_prev(p))
-    # 3. the calendar shows this period (or an earlier one) still to come after the number was typed
+    # 4. the calendar shows this period (or an earlier one) still to come after the number was typed
     later = db.scalar(select(EconomicEvent.reference_period).where(
         EconomicEvent.indicator_id == ind.id, EconomicEvent.reference_period <= p,
         EconomicEvent.scheduled_at > made + timedelta(hours=18),
@@ -114,7 +118,7 @@ def _target_period(db: Session, ind: Indicator, rel, made) -> str | None:
     return None
 
 
-def fix_too_new_periods(db: Session) -> int:
+def fix_too_new_periods(db: Session, commit: bool = True) -> int:
     """Numbers typed in on the Macro page or the calendar that were filed under the wrong period: the month
     or quarter they were typed in (October's UK PPI typed on 2 November became "2026-11"), a period that
     hadn't even started (ISM services "2026-12", Japan GDP "2027Q1"), or the period after the release they
@@ -141,6 +145,7 @@ def fix_too_new_periods(db: Session) -> int:
         if not target or target == p:
             continue
         old_ev = db.get(EconomicEvent, rel.event_id) if rel.event_id else None
+        db.flush()
         there = da.current_release(db, ind.id, target)
         if there is not None and there.id != rel.id:
             rel.is_current, rel.verification_status, rel.superseded_by_id = False, "SUPERSEDED", there.id
@@ -148,15 +153,14 @@ def fix_too_new_periods(db: Session) -> int:
                 rel.event_id = there.event_id  # so the mislabelled event can go
             rel.reference_period = target
         else:
-            ev = da.event_for(db, ind.id, target)
+            ev = da.event_for_saved(db, ind.id, target)
             if ev is None and old_ev is not None and old_ev.reference_period == p:
                 old_ev.reference_period = target  # the event itself was mislabelled
+                db.flush()
                 ev = old_ev
             elif ev is None:
-                ev = EconomicEvent(indicator_id=ind.id, reference_period=target, importance=ind.importance,
-                                   scheduled_at=made, event_type="release")
-                db.add(ev)
-                db.flush()
+                ev = da.get_or_create_event(db, ind.id, target, importance=ind.importance,
+                                            scheduled_at=made, event_type="release")
             rel.reference_period, rel.event_id = target, ev.id
         db.flush()
         if old_ev is not None and old_ev.reference_period == p:
@@ -165,7 +169,7 @@ def fix_too_new_periods(db: Session) -> int:
             if old_ev.consensus_source in (None, "manual", "fmp") and _event_unused(db, old_ev.id):
                 db.delete(old_ev)
         fixed += 1
-    if fixed:
+    if fixed and commit:
         db.commit()
     return fixed
 

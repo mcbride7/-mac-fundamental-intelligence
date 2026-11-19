@@ -94,8 +94,8 @@ def upsert_official_release(db: Session, src: Source, ind: Indicator, period: st
     Existing manual value -> reconcile (match = VERIFIED, mismatch = CONFLICT)."""
     cur = da.current_release(db, ind.id, period)
     if cur is not None:
+        # the FMP calendar's figure replaces a typed-in number for the same release, confirmed or not
         typed_over = (cur.input_method != "automated" and source_rank(src.key) == 0
-                      and cur.verification_status == VerificationStatus.UNVERIFIED.value
                       and abs(cur.actual - value) >= 1e-6)
         if cur.input_method != "automated" and not typed_over:
             if cur.verification_status in (VerificationStatus.UNVERIFIED.value,
@@ -103,8 +103,6 @@ def upsert_official_release(db: Session, src: Source, ind: Indicator, period: st
                 reconcile(db, cur, value, src.key, src.name)
                 return 1
             return 0
-        # (typed_over: the calendar comes first, so its figure replaces a typed-in number nobody confirmed;
-        # one you confirmed yourself still goes to the conflict check above)
         if abs(cur.actual - value) < 1e-6:
             return 0
         if not typed_over and cur.source_id != src.id and _rank(db, cur.source_id) < source_rank(src.key):
@@ -123,14 +121,12 @@ def upsert_official_release(db: Session, src: Source, ind: Indicator, period: st
         cur.verification_status = VerificationStatus.SUPERSEDED.value
         cur.superseded_by_id = rev.id
         return 1
-    ev = da.event_for(db, ind.id, period)
+    ev = da.event_for_saved(db, ind.id, period)
     prev_rel = da.latest_current(db, ind.id)
     if ev is None:
-        ev = EconomicEvent(indicator_id=ind.id, reference_period=period, importance=ind.importance,
-                           previous=prev_rel.actual if prev_rel else None, consensus=consensus,
-                           scheduled_at=released_at)
-        db.add(ev)
-        db.flush()
+        ev = da.get_or_create_event(db, ind.id, period, importance=ind.importance,
+                                    previous=prev_rel.actual if prev_rel else None, consensus=consensus,
+                                    scheduled_at=released_at)
     db.add(EconomicRelease(event_id=ev.id, indicator_id=ind.id, reference_period=period, actual=value,
                            previous=ev.previous, consensus=consensus if consensus is not None else ev.consensus,
                            unit=ind.unit, released_at=released_at or min(_period_end(period), utcnow()), revision_number=0,

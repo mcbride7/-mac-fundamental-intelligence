@@ -454,3 +454,62 @@ def test_weekly_claims_filed_by_week(db, monkeypatch):
 def test_japan_core_cpi_is_the_national_figure(match):
     assert match(_item("Core Inflation Rate YoY (Sep)", "JP", "%")) == "JP_CORE_CPI_YOY"
     assert match(_item("Tokyo Core CPI YoY (Oct)", "JP", "%")) is None
+
+
+def test_fmp_replaces_a_confirmed_typed_number(db):
+    """You asked for the calendar's figure to replace numbers you confirmed yourself, too."""
+    from app.services import data_access as da
+
+    ind = _fmp_at(db, "GB_PPI_YOY", "2026-09", 8.3, datetime(2026, 10, 15, 6, tzinfo=timezone.utc))
+    typed = _typed(db, ind, "2026-10", 9.0, datetime(2026, 11, 17, 9, tzinfo=timezone.utc))
+    typed.verification_status = "USER_CONFIRMED"
+    db.commit()
+    _fmp_at(db, "GB_PPI_YOY", "2026-10", 10.8, datetime(2026, 11, 18, 7, tzinfo=timezone.utc))
+    db.commit()
+    rel = da.latest_current(db, ind.id)
+    assert rel.actual == 10.8 and rel.input_method == "automated"
+
+
+def test_typed_before_its_release_came_out_is_retired(db):
+    """US JOLTS 7.523 typed on 10 Nov as October; the calendar dates October's release in December, so it
+    was September's figure (out 3 Nov)."""
+    from app.models import EconomicEvent
+    from app.services import data_access as da
+    from app.services.macro_edit import fix_too_new_periods
+
+    ind = _fmp_at(db, "US_JOLTS", "2026-09", 7.523, datetime(2026, 11, 3, 15, tzinfo=timezone.utc))
+    typed = _typed(db, ind, "2026-10", 7.523, datetime(2026, 11, 10, 9, tzinfo=timezone.utc))
+    db.get(EconomicEvent, typed.event_id).scheduled_at = datetime(2026, 12, 8, 15, tzinfo=timezone.utc)
+    db.commit()
+    fix_too_new_periods(db)
+    rel = da.latest_current(db, ind.id)
+    assert rel.reference_period == "2026-09" and rel.input_method == "automated"
+
+
+def test_one_bad_release_never_fails_the_run(db, monkeypatch):
+    from sqlalchemy import select
+
+    from app.config import settings
+    from app.ingestion import markets
+    from app.models import Source
+    from app.services import data_access as da
+
+    src = db.scalar(select(Source).where(Source.key == "fmp"))
+    when = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
+    first = (date.today() - timedelta(days=markets.FMP_LOOKBACK_DAYS)).isoformat() + " 00:00:00"
+    rows = [_item("ISM Manufacturing PMI", "US", None, 55.5, when=when),
+            _item("Non Farm Payrolls", "US", "K", 165.0, when=when)] + \
+        [_item("Some Auction", "US", "%", 1.0, when=first) for _ in range(120)]
+    real = markets.fmp_event
+
+    def flaky(db_, ind, when_, name):
+        if ind.code == "US_NFP":
+            raise RuntimeError("duplicate key value violates unique constraint")
+        return real(db_, ind, when_, name)
+
+    monkeypatch.setattr(settings, "fmp_api_key", "x")
+    monkeypatch.setattr(markets, "_fmp_get", lambda params: rows)
+    monkeypatch.setattr(markets, "fmp_event", flaky)
+    n, warning = markets.run_fmp(db, src)
+    assert "US_NFP" in warning and n > 0
+    assert da.latest_current(db, da.indicator_by_code(db, "US_ISM_MANUF").id).actual == 55.5

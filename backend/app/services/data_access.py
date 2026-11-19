@@ -95,6 +95,31 @@ def event_for(db: Session, indicator_id: int, period: str) -> EconomicEvent | No
                                                  EconomicEvent.reference_period == period))
 
 
+def event_for_saved(db: Session, indicator_id: int, period: str) -> EconomicEvent | None:
+    """event_for after saving pending changes: sessions don't autoflush, so an event created or relabelled
+    earlier in the same job would otherwise be missed (and a duplicate made)."""
+    db.flush()
+    return event_for(db, indicator_id, period)
+
+
+def get_or_create_event(db: Session, indicator_id: int, period: str, **fields) -> EconomicEvent:
+    """The calendar event for (indicator, period), created if missing. Never makes a duplicate: pending
+    changes are saved first, and if the event appears meanwhile the existing one is returned."""
+    from sqlalchemy.exc import IntegrityError
+
+    ev = event_for_saved(db, indicator_id, period)
+    if ev is not None:
+        return ev
+    ev = EconomicEvent(indicator_id=indicator_id, reference_period=period, **fields)
+    try:
+        with db.begin_nested():
+            db.add(ev)
+            db.flush()
+    except IntegrityError:
+        ev = event_for(db, indicator_id, period)
+    return ev
+
+
 def projection_for(db: Session, cb_id: int, variable: str, target_period: str,
                    as_of: date | datetime | None = None) -> tuple[CentralBankProjection, ProjectionVintage] | None:
     """Latest projection for (variable, target year) published on or before `as_of`
